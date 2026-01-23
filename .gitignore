@@ -105,31 +105,7 @@ ipython_config.py
 ._*
 Thumbs.db
 
-# Project specific - media files
-# Keep data/prompts/ tracked, ignore generated media
-data/inputs/*
-!data/inputs/.gitkeep
-data/outputs/images/*
-!data/outputs/images/.gitkeep
-data/outputs/videos/*
-!data/outputs/videos/.gitkeep
-
-# Large media files (in case they end up elsewhere)
-*.mp4
-*.avi
-*.mov
-*.mkv
-*.webm
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.webp
-
-# But allow example/small files if needed
-!data/prompts/**
-
-# Model weights
+# Model weights (large ML models)
 models/
 
 # Secrets

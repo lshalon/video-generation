@@ -1,0 +1,17 @@
+Based on the video script below, create a detailed image generation prompt for the FIRST FRAME of this video shot.
+
+## Video Script
+$script
+
+## Your Task
+Write a prompt for an AI image generation model that will create the starting frame of this video. The prompt should:
+
+1. **Describe the exact scene** - What we see in this first frame
+2. **Include the product** - Reference the product images provided (use "Figure 1", "Figure 2", etc. to refer to the input product images)
+3. **Specify the model pose** - The exact position, gesture, and expression for the starting moment
+4. **Set the lighting and mood** - Match the luxury aesthetic described in the script
+5. **Define the composition** - Framing, background, and visual style
+
+Format your response as a SINGLE PARAGRAPH prompt (no bullet points or sections). The prompt should be suitable for an AI image editing model that will composite the product images into a new scene.
+
+Start your prompt with an instruction like "Create a luxury jewelry advertisement showing..." and be specific about how to incorporate the product images.

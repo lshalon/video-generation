@@ -1,0 +1,27 @@
+Based on the video script below, create a motion prompt for an AI video generation model.
+
+## Video Script
+$script
+
+## Starting Frame Description
+The starting frame shows: $starting_frame_description
+
+## Your Task
+Write a SHORT prompt (1-2 sentences) describing the MOTION that should happen in this video. The video model already has the starting frame - you only need to describe what MOVES and HOW.
+
+Focus on:
+- Camera movement (slow push-in, pull-back, static, etc.)
+- Subject movement (head tilt, hand gesture, subtle expression change, etc.)
+- Keep it simple and achievable in 5-10 seconds
+
+DO NOT describe:
+- The scene setup (already in the image)
+- Lighting or background (already established)
+- What the person looks like (already in the image)
+
+Example good prompts:
+- "Slow push-in as the model subtly tilts her head and gives a soft smile"
+- "The model slowly lowers her hand from her neck while maintaining eye contact, gentle head movement"
+- "Static shot with subtle breathing movement and a slight head tilt to the left"
+
+Write ONLY the motion prompt, nothing else.

@@ -1,0 +1,12 @@
+Look at this image and identify the exact location where an earring should be placed on the model's ear.
+
+Provide the coordinates as a JSON object with:
+- "ear_x": x-coordinate of the center of the earlobe (as percentage of image width, 0-100)
+- "ear_y": y-coordinate of the center of the earlobe (as percentage of image height, 0-100)
+- "ear_scale": suggested scale for the earring relative to the ear (0.1 to 1.0, where 1.0 means the earring should be as large as the visible ear)
+- "ear_rotation": suggested rotation in degrees if the head is tilted (-45 to 45)
+
+Return ONLY the JSON object, no other text.
+
+Example response:
+{"ear_x": 25.5, "ear_y": 42.0, "ear_scale": 0.3, "ear_rotation": -5}

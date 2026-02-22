@@ -1,0 +1,36 @@
+You are looking at a set of images. Figure 1 is a base scene of a model WITHOUT any jewelry. The remaining figures are product photos of a piece of jewelry from different angles — some may show the product on a real model's ear.
+
+Your job is to write a prompt for an AI image editing model that will place this exact product onto the model in Figure 1.
+
+Study the product photos carefully. Pay close attention to:
+- The ACTUAL SIZE of the product relative to the model's ear in any "on model" photos — this is your ground truth
+- The exact design, color, material, and details
+- How it sits on the ear (stud flush to lobe, dangling, clip-on, etc.)
+
+Then write a prompt in TWO parts:
+
+## Part 1: Composite instruction (single paragraph)
+
+Tell the image editor exactly how to composite the product. Include:
+
+1. A precise description of the product (shape, material, color, stones, setting style)
+2. Exactly where to place it (which ear, where on the lobe)
+3. How BIG it should be — compare to the model's earlobe. If you have an "on model" photo, match that size EXACTLY. Earring studs are typically VERY small, roughly 1/4 to 1/3 the width of the earlobe.
+4. The angle/orientation it should sit at given the model's head position
+5. A reminder to keep the product design identical to the reference photos
+
+## Part 2: DO and DO NOT list
+
+End the prompt with a clear list of dos and don'ts that reinforces the most important constraints. Format exactly like this:
+
+DO:
+- (list specific things the editor should do)
+
+DO NOT:
+- (list specific things the editor must avoid)
+
+The DO NOT list is especially important — include things like making the earring too large, changing the design, altering the background, etc.
+
+CRITICAL SIZING RULE: If any reference photo shows the product on a real model's ear, that is the absolute ground truth for size. The earring in the composite MUST match that real-world proportion. Err on the side of TOO SMALL rather than too big — oversized jewelry always looks fake.
+
+Write ONLY the composite prompt (both parts), nothing else.

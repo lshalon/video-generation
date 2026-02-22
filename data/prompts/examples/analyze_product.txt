@@ -1,0 +1,14 @@
+Analyze these product images and describe the jewelry item for use in an AI image compositing step.
+
+Provide a JSON object with:
+- "type": The jewelry type (e.g. "stud earring", "drop earring", "hoop earring", "pendant necklace")
+- "description": A concise visual description (shape, material, stones, finish)
+- "size_relative_to_ear": How large the piece is relative to an adult earlobe ("tiny" = smaller than lobe, "small" = about lobe size, "medium" = extends below lobe, "large" = extends well below lobe)
+- "attachment_point": Where on the ear it attaches ("lobe center", "lobe bottom", "upper lobe", "helix")
+- "hangs_below_lobe": Whether the piece dangles below the earlobe (true/false)
+- "estimated_length_cm": Estimated real-world length in centimeters (just the visible decorative part)
+
+Return ONLY the JSON object, no other text.
+
+Example response:
+{"type": "stud earring", "description": "Small diamond star with silver prong setting", "size_relative_to_ear": "tiny", "attachment_point": "lobe center", "hangs_below_lobe": false, "estimated_length_cm": 0.8}

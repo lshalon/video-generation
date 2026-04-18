@@ -28,6 +28,7 @@ class TestPipelineConfig:
         assert cfg.video_duration == "5"
         assert cfg.num_frames == 20
         assert cfg.claude_model == "claude-sonnet-4-20250514"
+        assert cfg.gemini_model == "gemini-3.1-pro-preview"
 
     def test_validate_missing_both_references(self, tmp_path: Path) -> None:
         product_dir = tmp_path / "product"

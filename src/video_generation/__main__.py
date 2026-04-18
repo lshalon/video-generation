@@ -65,10 +65,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Claude model identifier.",
     )
     parser.add_argument(
+        "--gemini-model",
+        type=str,
+        default="gemini-3.1-pro-preview",
+        help="Gemini model identifier (used for video analysis and image critique).",
+    )
+    parser.add_argument(
         "--num-frames",
         type=int,
         default=20,
-        help="Number of frames to extract from reference video (default: 20).",
+        help="Number of frames to extract from reference video (default: 20). Unused with Gemini.",
     )
     parser.add_argument(
         "--step",
@@ -94,6 +100,7 @@ def build_config(args: argparse.Namespace) -> PipelineConfig:
         reference_analysis=args.reference_analysis,
         output_dir=args.output_dir,
         claude_model=args.claude_model,
+        gemini_model=args.gemini_model,
         edit_model=args.edit_model,
         video_model=args.video_model,
         video_duration=args.video_duration,

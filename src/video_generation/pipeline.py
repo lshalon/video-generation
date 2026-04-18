@@ -37,7 +37,7 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
     output_dir = Path(config.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Step 1: Analyze reference
+    # Step 1: Analyze reference (Gemini — native video understanding)
     analysis_path = _resolve_analysis(config, output_dir)
 
     # Step 2: Write script
@@ -49,12 +49,13 @@ def run_pipeline(config: PipelineConfig) -> PipelineResult:
         output_dir=output_dir,
     )
 
-    # Step 3: Generate starting frame
+    # Step 3: Generate starting frame (Gemini for composite prompt + critique)
     logger.info("=== Step 3: Generate Starting Frame ===")
     frame_result = generate_starting_frame(
         script_result.script_text,
         config.product_dir,
         claude_model=config.claude_model,
+        gemini_model=config.gemini_model,
         edit_model=config.edit_model,
         output_dir=output_dir / "images",
     )
@@ -96,7 +97,7 @@ def run_step(step_name: str, config: PipelineConfig) -> None:
             raise ValueError("--reference-video is required for the 'analyze' step")
         analyze_reference(
             config.reference_video,
-            claude_model=config.claude_model,
+            gemini_model=config.gemini_model,
             num_frames=config.num_frames,
             output_dir=output_dir,
         )
@@ -121,6 +122,7 @@ def run_step(step_name: str, config: PipelineConfig) -> None:
             script_text,
             config.product_dir,
             claude_model=config.claude_model,
+            gemini_model=config.gemini_model,
             edit_model=config.edit_model,
             output_dir=output_dir / "images",
         )
@@ -165,7 +167,7 @@ def _resolve_analysis(config: PipelineConfig, output_dir: Path) -> Path:
         logger.info("=== Step 1: Analyze Reference Video ===")
         result = analyze_reference(
             config.reference_video,
-            claude_model=config.claude_model,
+            gemini_model=config.gemini_model,
             num_frames=config.num_frames,
             output_dir=output_dir,
         )

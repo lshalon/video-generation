@@ -1,5 +1,6 @@
 """Tests for the generate_starting_frame step."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -19,40 +20,44 @@ def _fake_image_bytes() -> bytes:
     return bytes(buf.tobytes())
 
 
-def _mock_critique(acceptable: bool, issues: list[str], correction: str) -> MagicMock:
-    """Create a mock response for messages.parse with a parsed_output."""
+def _gemini_critique_response(acceptable: bool, issues: list[str], correction: str) -> MagicMock:
+    """Create a mock Gemini response returning a CompositesCritique JSON."""
     critique = CompositesCritique(
         acceptable=acceptable, issues=issues, correction_prompt=correction
     )
     resp = MagicMock()
-    resp.parsed_output = critique
+    resp.text = json.dumps(critique.model_dump())
     return resp
 
 
 class TestGenerateStartingFrame:
     @patch("video_generation.steps.generate_starting_frame.httpx")
     @patch("video_generation.steps.generate_starting_frame.fal_client")
+    @patch("video_generation.steps.generate_starting_frame.get_gemini_client")
     @patch("video_generation.steps.generate_starting_frame.get_anthropic_client")
     def test_accepted_on_first_try(
         self,
-        mock_get_client: MagicMock,
+        mock_get_anthropic: MagicMock,
+        mock_get_gemini: MagicMock,
         mock_fal: MagicMock,
         mock_httpx: MagicMock,
         product_dir: Path,
         tmp_output_dir: Path,
         script_text: str,
     ) -> None:
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
+        # Anthropic: scene prompt (Stage 1 only)
+        mock_anthropic = MagicMock()
+        mock_get_anthropic.return_value = mock_anthropic
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[SimpleNamespace(text="Studio portrait, empty ears.")]
+        )
 
-        # messages.create: scene prompt, composite prompt
-        mock_client.messages.create.side_effect = [
-            MagicMock(content=[SimpleNamespace(text="Studio portrait, empty ears.")]),
-            MagicMock(content=[SimpleNamespace(text="Place the product on the ear.")]),
-        ]
-        # messages.parse: critique (accepted)
-        mock_client.messages.parse.side_effect = [
-            _mock_critique(True, [], ""),
+        # Gemini: composite prompt (Stage 2) + critique (Stage 3)
+        mock_gemini = MagicMock()
+        mock_get_gemini.return_value = mock_gemini
+        mock_gemini.models.generate_content.side_effect = [
+            MagicMock(text="Place the product on the ear."),
+            _gemini_critique_response(True, [], ""),
         ]
 
         fake_bytes = _fake_image_bytes()
@@ -77,32 +82,40 @@ class TestGenerateStartingFrame:
         assert result.frame_path.exists()
         assert result.frame_path.suffix == ".png"
 
-        assert mock_client.messages.create.call_count == 2
-        assert mock_client.messages.parse.call_count == 1
+        # Claude called once for scene prompt
+        assert mock_anthropic.messages.create.call_count == 1
+        # Gemini called twice: composite prompt + critique
+        assert mock_gemini.models.generate_content.call_count == 2
         assert mock_fal.subscribe.call_count == 2
 
     @patch("video_generation.steps.generate_starting_frame.httpx")
     @patch("video_generation.steps.generate_starting_frame.fal_client")
+    @patch("video_generation.steps.generate_starting_frame.get_gemini_client")
     @patch("video_generation.steps.generate_starting_frame.get_anthropic_client")
     def test_refines_once_then_accepted(
         self,
-        mock_get_client: MagicMock,
+        mock_get_anthropic: MagicMock,
+        mock_get_gemini: MagicMock,
         mock_fal: MagicMock,
         mock_httpx: MagicMock,
         product_dir: Path,
         tmp_output_dir: Path,
         script_text: str,
     ) -> None:
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
+        mock_anthropic = MagicMock()
+        mock_get_anthropic.return_value = mock_anthropic
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[SimpleNamespace(text="Studio portrait.")]
+        )
 
-        mock_client.messages.create.side_effect = [
-            MagicMock(content=[SimpleNamespace(text="Studio portrait.")]),
-            MagicMock(content=[SimpleNamespace(text="Place product on ear.")]),
-        ]
-        mock_client.messages.parse.side_effect = [
-            _mock_critique(False, ["Product is too large"], "Make the product 50% smaller."),
-            _mock_critique(True, [], ""),
+        mock_gemini = MagicMock()
+        mock_get_gemini.return_value = mock_gemini
+        mock_gemini.models.generate_content.side_effect = [
+            MagicMock(text="Place product on ear."),
+            _gemini_critique_response(
+                False, ["Product is too large"], "Make the product 50% smaller."
+            ),
+            _gemini_critique_response(True, [], ""),
         ]
 
         fake_bytes = _fake_image_bytes()
@@ -127,8 +140,9 @@ class TestGenerateStartingFrame:
 
         assert result.frame_path.exists()
 
-        assert mock_client.messages.create.call_count == 2
-        assert mock_client.messages.parse.call_count == 2
+        assert mock_anthropic.messages.create.call_count == 1
+        # composite prompt + 2 critiques
+        assert mock_gemini.models.generate_content.call_count == 3
         assert mock_fal.subscribe.call_count == 3
 
         assert (tmp_output_dir / "critique_v1.json").exists()
@@ -136,26 +150,30 @@ class TestGenerateStartingFrame:
 
     @patch("video_generation.steps.generate_starting_frame.httpx")
     @patch("video_generation.steps.generate_starting_frame.fal_client")
+    @patch("video_generation.steps.generate_starting_frame.get_gemini_client")
     @patch("video_generation.steps.generate_starting_frame.get_anthropic_client")
     def test_stops_at_max_refinements(
         self,
-        mock_get_client: MagicMock,
+        mock_get_anthropic: MagicMock,
+        mock_get_gemini: MagicMock,
         mock_fal: MagicMock,
         mock_httpx: MagicMock,
         product_dir: Path,
         tmp_output_dir: Path,
         script_text: str,
     ) -> None:
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
+        mock_anthropic = MagicMock()
+        mock_get_anthropic.return_value = mock_anthropic
+        mock_anthropic.messages.create.return_value = MagicMock(
+            content=[SimpleNamespace(text="Studio portrait.")]
+        )
 
-        mock_client.messages.create.side_effect = [
-            MagicMock(content=[SimpleNamespace(text="Studio portrait.")]),
-            MagicMock(content=[SimpleNamespace(text="Place product.")]),
-        ]
-        mock_client.messages.parse.side_effect = [
-            _mock_critique(False, ["Still too large"], "Make it even smaller."),
-            _mock_critique(False, ["Still too large"], "Make it even smaller."),
+        mock_gemini = MagicMock()
+        mock_get_gemini.return_value = mock_gemini
+        mock_gemini.models.generate_content.side_effect = [
+            MagicMock(text="Place product."),
+            _gemini_critique_response(False, ["Still too large"], "Make it even smaller."),
+            _gemini_critique_response(False, ["Still too large"], "Make it even smaller."),
         ]
 
         fake_bytes = _fake_image_bytes()

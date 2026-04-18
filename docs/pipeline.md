@@ -14,8 +14,8 @@ flowchart TD
     end
 
     subgraph step1 [Step 1: Analyze Reference]
-        A1["Extract frames from video"]
-        A2["Claude analyzes cinematography"]
+        A1["Upload video to Gemini File API"]
+        A2["Gemini analyzes cinematography (native video)"]
         A3["Reference analysis (.md)"]
         A1 --> A2 --> A3
     end
@@ -30,9 +30,11 @@ flowchart TD
     subgraph step3 [Step 3: Generate Starting Frame]
         C1["Claude writes scene prompt"]
         C2["Seedream v4 generates base scene"]
-        C3["Seedream v4.5 composites product"]
-        C4["Starting frame (.png)"]
-        C1 --> C2 --> C3 --> C4
+        C3["Gemini writes composite prompt"]
+        C4["Seedream v4.5 composites product"]
+        C5["Gemini critique loop"]
+        C6["Starting frame (.png)"]
+        C1 --> C2 --> C3 --> C4 --> C5 --> C6
     end
 
     subgraph step4 [Step 4: Generate Video]
@@ -60,7 +62,8 @@ You need accounts and API keys for:
 
 | Service    | Environment Variable   | Used For                              |
 |------------|------------------------|---------------------------------------|
-| Anthropic  | `ANTHROPIC_API_KEY`    | Claude (analysis, script, prompts)    |
+| Anthropic  | `ANTHROPIC_API_KEY`    | Claude (script, scene prompt, motion prompt) |
+| Google     | `GEMINI_API_KEY`       | Gemini (video analysis, composite prompt, critique) |
 | Fal.ai     | `FAL_KEY`              | Seedream (images), Kling/Seedance (video) |
 
 Copy `.env.example` to `.env` and fill in your keys:
@@ -127,11 +130,11 @@ uv run python -m video_generation \
 
 **Module:** `video_generation.steps.analyze_reference`
 
-Extracts evenly-spaced frames from a reference video, sends them to Claude as images, and asks for a professional cinematography breakdown covering shot type, camera movement, lighting, and pacing.
+Uploads the reference video to the Gemini File API for native video understanding (processed at 1 FPS + audio), then asks Gemini for a professional cinematography breakdown covering shot type, camera movement, lighting, and pacing.
 
 | | |
 |---|---|
-| **External services** | Claude (Anthropic) |
+| **External services** | Gemini (Google) |
 | **Input** | Reference video (`.mp4`) |
 | **Output** | `{video_stem}-analysis.md` in the output directory |
 | **Prompts used** | `system/video_analyst.txt`, `examples/shot_breakdown_request.txt` |
@@ -153,15 +156,17 @@ Reads the reference analysis and product images, then asks Claude to write a sin
 
 **Module:** `video_generation.steps.generate_starting_frame`
 
-Two-stage image generation:
+Multi-stage image generation with iterative refinement:
 
-1. Claude creates a scene prompt (model with correct pose, no jewelry).
+1. Claude writes a scene prompt (model with correct pose, no jewelry).
 2. **Seedream v4** generates the base scene (text-to-image).
-3. **Seedream v4.5 Edit** composites the actual product image onto the scene.
+3. **Gemini** writes a composite prompt from the scene + product images.
+4. **Seedream v4.5 Edit** composites the product onto the scene.
+5. **Gemini** critiques the composite (structured output) and Seedream corrects (up to 3 rounds).
 
 | | |
 |---|---|
-| **External services** | Claude (Anthropic), Seedream v4 and v4.5 (fal.ai) |
+| **External services** | Claude (Anthropic) for scene prompt, Gemini (Google) for composite prompt + critique, Seedream v4 and v4.5 (fal.ai) |
 | **Input** | Script text, product images directory |
 | **Output** | `starting_frame_*.png` in `output_dir/images/` |
 | **Prompts used** | `examples/scene_without_product.txt` |
@@ -190,7 +195,8 @@ Claude writes a short motion prompt from the script and starting frame, then the
 | `--video-model` | `fal-ai/kling-video/v2.6/pro/image-to-video` | Fal endpoint for video generation |
 | `--video-duration` | `"5"` | Video length in seconds |
 | `--claude-model` | `claude-sonnet-4-20250514` | Claude model identifier |
-| `--num-frames` | `20` | Frames to extract from reference video |
+| `--gemini-model` | `gemini-3.1-pro-preview` | Gemini model identifier (video analysis + image critique) |
+| `--num-frames` | `20` | Unused (kept for backward compatibility) |
 | `--step` | `None` | Run single step: `analyze`, `script`, `frame`, `video` |
 | `-v` / `--verbose` | `False` | Enable debug logging |
 

@@ -13,6 +13,7 @@ class PipelineConfig:
     reference_analysis: Path | None = None
     output_dir: Path = field(default_factory=lambda: Path("data/outputs"))
     claude_model: str = "claude-sonnet-4-20250514"
+    gemini_model: str = "gemini-3.1-pro-preview"
     edit_model: str = "fal-ai/bytedance/seedream/v4.5/edit"
     video_model: str = "fal-ai/kling-video/v2.6/pro/image-to-video"
     video_duration: str = "5"

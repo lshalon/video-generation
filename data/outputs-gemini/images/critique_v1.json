@@ -1,0 +1,7 @@
+{
+  "acceptable": false,
+  "issues": [
+    "The product is significantly larger in the composite compared to the reference photo showing it on a model's ear."
+  ],
+  "correction_prompt": "Make the star earring on the model's earlobe approximately 50% smaller while keeping its current placement and design intact."
+}

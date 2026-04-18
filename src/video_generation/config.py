@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
+DEFAULT_STORAGE_SPEC = "local:./data"
+
 
 @dataclass
 class PipelineConfig:
@@ -12,12 +14,16 @@ class PipelineConfig:
     reference_video: Path | None = None
     reference_analysis: Path | None = None
     output_dir: Path = field(default_factory=lambda: Path("data/outputs"))
-    claude_model: str = "claude-sonnet-4-20250514"
+    storage_spec: str = DEFAULT_STORAGE_SPEC
+    run_id: str | None = None
+    variant: str = ""
     gemini_model: str = "gemini-3.1-pro-preview"
-    edit_model: str = "fal-ai/bytedance/seedream/v4.5/edit"
+    claude_model: str = "claude-sonnet-4-20250514"
+    edit_model: str = "fal-ai/nano-banana-2/edit"
     video_model: str = "fal-ai/kling-video/v2.6/pro/image-to-video"
     video_duration: str = "5"
     num_frames: int = 20
+    max_refinements: int = 3
 
     def validate(self) -> None:
         """Validate that required inputs are provided."""
@@ -37,6 +43,7 @@ class AnalysisResult:
 
     analysis_text: str
     output_path: Path
+    content_id: str | None = None
 
 
 @dataclass
@@ -45,6 +52,7 @@ class ScriptResult:
 
     script_text: str
     script_path: Path
+    content_id: str | None = None
 
 
 @dataclass
@@ -52,6 +60,8 @@ class StartingFrameResult:
     """Output of the generate_starting_frame step."""
 
     frame_path: Path
+    content_id: str | None = None
+    intermediate_content_ids: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -59,6 +69,7 @@ class VideoResult:
     """Output of the generate_video step."""
 
     video_path: Path
+    content_id: str | None = None
 
 
 @dataclass
@@ -69,6 +80,11 @@ class PipelineResult:
     script_path: Path
     starting_frame_path: Path
     video_path: Path
+    run_id: str | None = None
+    analysis_content_id: str | None = None
+    script_content_id: str | None = None
+    starting_frame_content_id: str | None = None
+    video_content_id: str | None = None
 
     def summary(self) -> str:
         """Return a human-readable summary of all outputs."""
@@ -76,10 +92,17 @@ class PipelineResult:
             "",
             "Pipeline complete! All outputs:",
             "",
-            f"  1. Reference analysis : {self.analysis_path}",
-            f"  2. Video script       : {self.script_path}",
-            f"  3. Starting frame     : {self.starting_frame_path}",
-            f"  4. Final video        : {self.video_path}",
-            "",
         ]
+        if self.run_id:
+            lines.append(f"  Run id              : {self.run_id}")
+            lines.append("")
+        lines.extend(
+            [
+                f"  1. Reference analysis : {self.analysis_path}",
+                f"  2. Video script       : {self.script_path}",
+                f"  3. Starting frame     : {self.starting_frame_path}",
+                f"  4. Final video        : {self.video_path}",
+                "",
+            ]
+        )
         return "\n".join(lines)

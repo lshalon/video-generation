@@ -17,18 +17,19 @@ Reference Video (.mp4)          Product Images (.webp/.jpg/.png)
            ▼                             ▼
 ┌────────────────────────────────────────────┐
 │ Step 2: Write Script                       │
-│   Analysis + product images → Claude       │
+│   Analysis + product images → Gemini 3.1 Pro│
 │   → script.md                              │
 └──────────┬─────────────────────────────────┘
            │                             │
            ▼                             ▼
 ┌────────────────────────────────────────────┐
 │ Step 3: Generate Starting Frame            │
-│   3a. Claude writes scene prompt           │
-│   3b. Seedream v4 → base scene (no product)│
+│   3a. Gemini writes scene prompt           │
+│       (sees reference video if provided)   │
+│   3b. Nano Banana 2 → base scene (no product)│
 │   3c. Gemini writes composite prompt       │
-│   3d. Seedream v4.5 Edit → composite       │
-│   3e. Gemini critique loop (≤3x)           │
+│   3d. Nano Banana 2 Edit → composite       │
+│   3e. Gemini critique loop (≤3x, optional) │
 │   → starting_frame.png                     │
 └──────────┬─────────────────────────────────┘
            │
@@ -127,22 +128,22 @@ All steps live under `src/video_generation/steps/` and are orchestrated by `pipe
 
 | | |
 |---|---|
-| **Services** | Claude (Anthropic) |
-| **Input** | Analysis `.md` + product images directory |
-| **Output** | `script.md` in output dir |
+| **Services** | Gemini 3.1 Pro (Google) |
+| **Input** | Reference analysis content id + product image content ids |
+| **Output** | `script.md` (recorded as content + convenience copy under `runs/<run_id>/steps/script/`) |
 | **Prompts** | `system/script_writer.txt`, `examples/emulate_reference_script.txt` |
 
 **Processing:**
-1. Read the analysis markdown from Step 1's output path
-2. `load_product_images()` — find all `.webp/.jpg/.jpeg/.png` in the product directory
-3. Build a product description string listing each image filename
-4. `load_image_as_base64()` — resize to max 800px, JPEG-encode at quality 90, base64
-5. Template-substitute the analysis + product description into the user prompt
-6. Build a multimodal Claude message: product images + templated text
-7. Claude writes a single continuous shot script that emulates the reference style while showcasing the product
-8. Save to `{output_dir}/script.md`
+1. Read the analysis markdown via `ctx.content_store.get_bytes(...)`.
+2. For each product image content id, fetch the bytes, downscale to ≤800px,
+   JPEG-encode (quality 90), and wrap as a `types.Part.from_bytes(...)`.
+3. Template-substitute the analysis + product description into
+   `examples/emulate_reference_script.txt`.
+4. Send `[image_part, image_part, ..., text_prompt]` to Gemini 3.1 Pro with
+   `thinking_level=LOW` and `max_output_tokens=8192`.
+5. Record the script as `script` (kind=text, mime=text/markdown).
 
-**Result dataclass:** `ScriptResult(script_text, script_path)`
+**Result dataclass:** `ScriptResult(script_text, script_path, content_id)`
 
 ---
 
@@ -150,38 +151,63 @@ All steps live under `src/video_generation/steps/` and are orchestrated by `pipe
 
 **Module:** `video_generation.steps.generate_starting_frame`
 
-This is the most complex step — three stages with an iterative refinement loop. It uses both Claude (for scene prompt writing) and Gemini (for composite prompt + critique).
+The most complex step — three stages with an optional iterative refinement
+loop. Gemini 3.1 Pro drives all three text-generation calls (scene prompt,
+composite prompt, critique); Nano Banana 2 handles both image generations.
 
 | | |
 |---|---|
-| **Services** | Claude Sonnet (scene prompt), Gemini 3.1 Pro (composite prompt + critique), Seedream v4 (fal), Seedream v4.5 Edit (fal) |
-| **Input** | Script text, product images directory |
-| **Output** | `starting_frame*.png` + `composite_prompt.txt` + `critique_v*.json` in `output_dir/images/` |
+| **Services** | Gemini 3.1 Pro (scene prompt, composite prompt, critique), Nano Banana 2 + Nano Banana 2 Edit (fal.ai) |
+| **Input** | Script content id, product image content ids, optional reference video + analysis content ids |
+| **Output** | `scene_prompt.txt`, `base_scene.png`, `composite_prompt.txt`, `starting_frame_v0.png`, `critique_v{i}.json`, `starting_frame_v{i}.png`, `starting_frame.png` (alias of the final version) |
 | **Prompts** | `examples/scene_without_product.txt`, `examples/write_composite_prompt.txt`, `examples/critique_composite.txt` |
 
 **Stage 1 — Generate base scene (no product):**
-1. Template-substitute the script into `scene_without_product.txt`
-2. Claude Sonnet writes an image generation prompt for a scene *without any jewelry*
-3. Call **Seedream v4** text-to-image (portrait 4:3) via fal → base scene PNG
-4. Download the result image
+1. Template-substitute the script + reference analysis into
+   `scene_without_product.txt`.
+2. If a `reference_video_content_id` is provided, materialize the bytes into
+   a temp dir, upload to the Gemini File API, and poll until `state=ACTIVE`.
+3. Send `[video_file, scene_request_text]` (or just text if no video) to
+   Gemini 3.1 Pro with `SCENE_PROMPT_SYSTEM`,
+   `thinking_level=LOW`, and `max_output_tokens=4096`. Gemini matches the
+   reference's lens, lighting, framing, and pose.
+4. Delete the uploaded Gemini file.
+5. Call **Nano Banana 2** (`fal-ai/nano-banana-2`) text-to-image with
+   `aspect_ratio="3:4"`, `resolution="1K"`, `output_format="png"`.
+6. Download the resulting PNG.
 
-**Stage 2 — Initial composite (Gemini):**
-1. Load all product images, upload them + the scene to fal
-2. Send scene + all product photos to **Gemini 3.1 Pro** with `write_composite_prompt.txt` (images passed via `Part.from_bytes()`)
-3. Gemini writes an edit prompt describing how to composite the product onto the scene
-4. Call **Seedream v4.5 Edit** with the composite prompt + scene URL + product URLs → composited image
-5. Save as `starting_frame_v0.png`
+**Stage 2 — Initial composite (Gemini + Nano Banana 2 Edit):**
+1. Build a Gemini multimodal `contents` list: `[base_scene_png_part,
+   product_png_part, ..., write_composite_prompt_text]`.
+2. Send to Gemini 3.1 Pro with `thinking_level=LOW` and
+   `max_output_tokens=4096`. Gemini writes a precise, scale-aware edit
+   prompt with explicit DO / DO NOT lists.
+3. Upload the base scene + each product image to fal.
+4. Call **Nano Banana 2 Edit** (`fal-ai/nano-banana-2/edit`) with
+   `prompt=composite_prompt`, `image_urls=[scene_url, *product_urls]`,
+   `aspect_ratio="3:4"`. (The `_run_edit()` helper branches on model id so
+   passing a Seedream `--edit-model` still works with `image_size`.)
+5. Record as `starting_frame_v0` (and as `starting_frame` if
+   `--max-refinements 0`).
 
-**Stage 3 — Iterative refinement (Gemini critique loop, up to 3 rounds):**
-1. Send the current composite + all product reference photos to **Gemini 3.1 Pro** with `critique_composite.txt`
-2. Gemini returns a structured `CompositesCritique` via JSON schema enforcement: `{acceptable, issues[], correction_prompt}`
-3. If `acceptable == true` → stop, use current composite
-4. If a `correction_prompt` is provided → call Seedream v4.5 Edit again with the correction
-5. Save each iteration as `starting_frame_v{i}.png` and critique as `critique_v{i}.json`
-6. Repeat until accepted or max iterations reached
-7. Save the final version as `starting_frame_<timestamp>.png`
+**Stage 3 — Iterative refinement (optional, off when `--max-refinements 0`):**
+1. Send the current composite + all product reference photos to Gemini 3.1
+   Pro with `critique_composite.txt`, structured-output JSON
+   (`response_schema=CompositesCritique`), and `thinking_level=LOW`.
+2. Gemini returns `{acceptable, issues[], correction_prompt}`.
+3. If `acceptable == true`, stop.
+4. Otherwise, call Nano Banana 2 Edit again with the correction prompt
+   applied to the *current* composite.
+5. Record `critique_v{i}.json` and `starting_frame_v{i}.png` for each
+   iteration. The final version is also aliased as `starting_frame`.
 
-**Result dataclass:** `StartingFrameResult(frame_path)`
+> **Known caveat:** with the existing critic prompt (`critique_composite.txt`,
+> "BE HARSH"), the loop tends to demand cumulative shrinkage and degrades
+> Nano Banana 2 Edit's already-good first composite. In practice
+> `--max-refinements 0` produces better starting frames; the critic infra is
+> kept in place for future scoring/observability use.
+
+**Result dataclass:** `StartingFrameResult(frame_path, content_id, intermediate_content_ids)`
 
 ---
 
@@ -216,24 +242,36 @@ This is the most complex step — three stages with an iterative refinement loop
 
 ## Artifact Map
 
-All artifacts land in `--output-dir` (default `data/outputs/`):
+Artifacts are stored content-addressed under `<storage_root>/library/` and
+mirrored into the run's convenience-copy tree at
+`<storage_root>/runs/<run_id>/steps/`. For `--storage local:./data` (default):
 
 ```
-data/outputs/
-├── {video_stem}-analysis.md      ← Step 1
-├── script.md                     ← Step 2
-├── images/
-│   ├── starting_frame_v0.png     ← Step 3 (initial composite)
-│   ├── starting_frame_v1.png     ← Step 3 (refinement 1)
-│   ├── starting_frame_v2.png     ← Step 3 (refinement 2)
-│   ├── starting_frame_*.png      ← Step 3 (final)
-│   ├── composite_prompt.txt      ← Step 3 (composite edit prompt)
-│   ├── critique_v1.json          ← Step 3 (critique round 1)
-│   ├── critique_v2.json          ← Step 3 (critique round 2)
-│   └── critique_v3.json          ← Step 3 (critique round 3)
-└── videos/
-    └── video_*.mp4               ← Step 4 (final output)
+data/
+├── library/<aa>/<sha256>{.ext,.meta.json}     # canonical content blobs
+└── runs/<run_id>/
+    ├── manifest.json                           # RunRecord
+    └── steps/
+        ├── analyze/analysis.md                 ← Step 1
+        ├── script/script.md                    ← Step 2
+        ├── frame/                              ← Step 3
+        │   ├── scene_prompt.txt
+        │   ├── base_scene.png
+        │   ├── composite_prompt.txt
+        │   ├── starting_frame_v0.png           # initial composite
+        │   ├── critique_v1.json                # only if --max-refinements > 0
+        │   ├── starting_frame_v1.png
+        │   ├── ...
+        │   └── starting_frame.png              # alias of the final version
+        └── video/                              ← Step 4
+            ├── motion_prompt.txt
+            └── video.mp4
 ```
+
+The legacy `--output-dir` (default `data/outputs/`) is kept for backward
+compatibility but no longer written to by the pipeline. See
+[storage-and-runs.md](storage-and-runs.md) for the manifest schema and
+content-store details.
 
 ---
 
@@ -246,7 +284,7 @@ All prompts live in `data/prompts/` and are loaded by `video_generation.prompts.
 | File | Used by |
 |---|---|
 | `video_analyst.txt` | Step 1 — analyze reference (Gemini) |
-| `script_writer.txt` | Step 2 — write script (Claude) |
+| `script_writer.txt` | Step 2 — write script (Gemini) |
 | `assistant.txt` | General-purpose (not used in pipeline) |
 
 ### Example prompts (`data/prompts/examples/`)
@@ -254,8 +292,8 @@ All prompts live in `data/prompts/` and are loaded by `video_generation.prompts.
 | File | Used by |
 |---|---|
 | `shot_breakdown_request.txt` | Step 1 — user message for video analysis (Gemini) |
-| `emulate_reference_script.txt` | Step 2 — templated script request (vars: `$reference_analysis`, `$product_description`) |
-| `scene_without_product.txt` | Step 3a — scene prompt request (var: `$script`) (Claude) |
+| `emulate_reference_script.txt` | Step 2 — templated script request (vars: `$reference_analysis`, `$product_description`) (Gemini) |
+| `scene_without_product.txt` | Step 3a — scene prompt request (vars: `$script`, `$reference_analysis`) (Gemini, also receives the reference video binary when available) |
 | `write_composite_prompt.txt` | Step 3b — composite prompt from scene + products (Gemini) |
 | `critique_composite.txt` | Step 3c — structured critique of composite (Gemini) |
 | `video_motion_prompt.txt` | Step 4 — motion prompt request (vars: `$script`, `$starting_frame_description`) (Claude) |
@@ -271,12 +309,16 @@ All prompts live in `data/prompts/` and are loaded by `video_generation.prompts.
 
 | Service | Endpoint / Model | Steps |
 |---|---|---|
-| Google Gemini 3.1 Pro | `gemini-3.1-pro-preview` | 1 (video analysis), 3b (composite prompt), 3c (critique) |
-| Anthropic Claude Sonnet | `claude-sonnet-4-20250514` | 2 (script), 3a (scene prompt), 4 (motion prompt) |
-| fal — Seedream v4 | `fal-ai/bytedance/seedream/v4/text-to-image` | 3a (base scene) |
-| fal — Seedream v4.5 Edit | `fal-ai/bytedance/seedream/v4.5/edit` | 3b (composite), 3c (refinement) |
+| Google Gemini 3.1 Pro | `gemini-3.1-pro-preview` | 1 (video analysis), 2 (script), 3a (scene prompt, w/ reference video), 3b (composite prompt), 3c (critique) |
+| Anthropic Claude Sonnet | `claude-sonnet-4-20250514` | 4 (motion prompt only) |
+| fal — Nano Banana 2 | `fal-ai/nano-banana-2` | 3a (base scene) |
+| fal — Nano Banana 2 Edit | `fal-ai/nano-banana-2/edit` | 3b (composite), 3c (refinement) |
 | fal — Kling v2.6 Pro | `fal-ai/kling-video/v2.6/pro/image-to-video` | 4 (default video model) |
 | fal — Seedance v1.5 Pro | `fal-ai/bytedance/seedance/v1.5/pro/image-to-video` | 4 (alternative video model) |
+
+> Older `fal-ai/bytedance/seedream/v4{,.5}/...` endpoints are still supported
+> via `--edit-model` (the `_run_edit` helper branches on the model id and
+> swaps `aspect_ratio` for Seedream's `image_size` parameter).
 
 ---
 
@@ -284,9 +326,9 @@ All prompts live in `data/prompts/` and are loaded by `video_generation.prompts.
 
 | Service | Environment Variable | Used For |
 |---|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` | Claude (script, scene prompt, motion prompt) |
-| Google Gemini | `GEMINI_API_KEY` | Gemini (video analysis, composite prompt, critique) |
-| Fal.ai | `FAL_KEY` | Seedream (images), Kling/Seedance (video) |
+| Google Gemini | `GEMINI_API_KEY` | Gemini (analysis, script, scene prompt, composite prompt, critique) |
+| Anthropic | `ANTHROPIC_API_KEY` | Claude (video motion prompt only) |
+| Fal.ai | `FAL_KEY` | Nano Banana 2 (images), Kling/Seedance (video) |
 
 ---
 
@@ -320,16 +362,33 @@ uv run python -m video_generation \
 
 ### Single steps
 
+`--step` runs one named step. Any missing upstream steps for the same
+`(inputs, params, code_version)` triple are run automatically; previously
+completed steps are short-circuited from the manifest, so re-invoking a
+single step on a complete run does **not** make any external API calls.
+
 ```bash
 # Step 1 only
-uv run python -m video_generation --step analyze --reference-video ... --product-dir ...
+uv run python -m video_generation --step analyze \
+  --product-dir data/inputs/jewelry/product \
+  --reference-video data/inputs/jewelry/reference/yurman-full-shot.mp4
 
-# Step 2 only (requires analysis to exist)
-uv run python -m video_generation --step script --reference-analysis ... --product-dir ...
+# Step 2 only — auto-runs Step 1 if needed for this run
+uv run python -m video_generation --step script \
+  --product-dir data/inputs/jewelry/product \
+  --reference-video data/inputs/jewelry/reference/yurman-full-shot.mp4
 
-# Step 3 only (requires script.md in output dir)
-uv run python -m video_generation --step frame --product-dir ...
+# Step 3 only — auto-runs Steps 1+2 if needed
+uv run python -m video_generation --step frame \
+  --product-dir data/inputs/jewelry/product \
+  --reference-video data/inputs/jewelry/reference/yurman-full-shot.mp4
 
-# Step 4 only (requires script.md + starting_frame*.png in output dir)
-uv run python -m video_generation --step video --product-dir ...
+# Step 4 only — auto-runs everything upstream that's missing
+uv run python -m video_generation --step video \
+  --product-dir data/inputs/jewelry/product \
+  --reference-video data/inputs/jewelry/reference/yurman-full-shot.mp4
 ```
+
+To force a step to re-execute, change something that participates in
+`run_id` (e.g. pass `--variant rerun-1`) or pass `--max-refinements 0` to
+skip the critique loop.

@@ -1,41 +1,47 @@
-Based on the video script below, create a detailed image generation prompt for the FIRST FRAME of this video shot - but WITHOUT the product visible.
+Based on the video script and reference materials below, write a detailed image generation prompt for the FIRST FRAME of the video shot - but with NO product visible.
+
+If a reference video has been attached, watch its very first moment (the in-point) closely. Your scene MUST mirror that opening frame's shot framing, camera angle, lens feel, lighting setup, and model pose, so the generated image can plausibly be the first frame of a video that emulates the reference.
 
 ## Video Script
 $script
 
+## Reference Cinematography Analysis
+$reference_analysis
+
 ## Your Task
-Write a prompt for an AI image generation model that will create the starting frame of this video, but with NO JEWELRY/PRODUCT in the scene. The product will be composited in separately afterward.
+Write a prompt for an AI image generation model that will create the starting frame of this video, but with NO JEWELRY/PRODUCT in the scene. The product will be composited in afterward.
 
 The prompt MUST include detailed specifications for:
 
 1. **Camera/Shot Setup**
-   - Exact shot type (close-up, medium close-up, etc.)
+   - Exact shot type (close-up, medium close-up, etc.) - copy from the reference's opening frame when one is provided.
    - Camera angle (eye level, slightly above, three-quarter view, etc.)
+   - Lens feel (e.g. 85mm portrait, shallow depth of field) consistent with the reference.
    - Framing and composition (rule of thirds, centered, etc.)
 
 2. **Lighting Setup**
-   - Key light position and quality (soft/hard, direction)
+   - Key light position and quality (soft/hard, direction) matching the reference.
    - Fill light and contrast ratio
    - Background lighting
    - Overall mood (high-key, low-key, natural, studio, etc.)
-   - Mention "studio lighting", "softbox", "beauty lighting" etc. explicitly
+   - Mention "studio lighting", "softbox", "beauty lighting" etc. explicitly when applicable.
 
 3. **Model and Pose**
-   - Exact position, gesture, and expression
-   - Head angle and tilt direction
-   - Hand placement if visible
+   - Exact position, gesture, and expression - copy from the reference's first frame when one is provided.
+   - Head angle and tilt direction.
+   - Hand placement if visible.
 
 4. **Ear Visibility (CRITICAL)**
-   - Hair MUST be styled behind the ear
-   - Ear fully exposed and well-lit
-   - Specify which ear should be visible (left/right based on camera angle)
+   - Hair MUST be styled behind the visible ear.
+   - Ear fully exposed and well-lit.
+   - Specify which ear should be visible (left/right based on camera angle), matching the reference.
 
 5. **Background and Style**
    - Background type (seamless white, gradient, etc.)
    - Overall aesthetic (luxury, commercial, editorial, etc.)
 
 6. **Explicit Exclusions**
-   - NO earrings, NO jewelry on ears
-   - Empty earlobes, unadorned ears
+   - NO earrings, NO jewelry on ears.
+   - Empty earlobes, unadorned ears.
 
-Format your response as a SINGLE DETAILED PARAGRAPH. Start with the shot type and camera setup, then describe lighting, then the model, then specify no earrings. Be technical and specific - this prompt needs to produce a consistent, professional result.
+Format your response as a SINGLE DETAILED PARAGRAPH. Start with the shot type and camera setup, then describe lighting, then the model, then specify no earrings. Be technical and specific - this prompt needs to produce a consistent, professional result that visually matches the reference's opening frame.

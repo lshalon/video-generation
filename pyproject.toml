@@ -7,6 +7,9 @@ requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.82.0",
     "fal-client>=0.11.0",
+    "google-api-python-client>=2.140",
+    "google-auth>=2.34",
+    "google-auth-httplib2>=0.2",
     "google-genai>=1.72.0",
     "httpx>=0.28.1",
     "openai>=2.15.0",

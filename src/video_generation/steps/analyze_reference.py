@@ -1,6 +1,9 @@
 """Step 1: Analyze a reference video using Gemini native video understanding."""
 
+from __future__ import annotations
+
 import logging
+import tempfile
 import time
 from pathlib import Path
 
@@ -9,92 +12,104 @@ from google.genai import types
 from video_generation.clients import get_gemini_client
 from video_generation.config import AnalysisResult
 from video_generation.prompts import load_prompt, load_system_prompt
+from video_generation.store import StepContext
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
 FILE_POLL_INTERVAL_SECONDS = 5
+STEP_NAME = "analyze"
+OUTPUT_NAME = "analysis"
 
 
 def analyze_reference(
-    video_path: Path,
-    *,
+    reference_video_content_id: str,
+    ctx: StepContext,
     gemini_model: str = DEFAULT_GEMINI_MODEL,
-    num_frames: int = 20,  # noqa: ARG001  — kept for CLI backward compat
-    output_dir: Path | None = None,
+    num_frames: int = 20,  # noqa: ARG001  - kept for backwards compat with the CLI
 ) -> AnalysisResult:
     """Analyze a reference video and produce a shot breakdown.
 
-    Uploads the video to the Gemini File API for native video understanding,
-    then asks Gemini to produce a professional cinematography analysis.
+    Materializes the reference video bytes from the content store to a
+    temp file, uploads to the Gemini File API, asks Gemini for a professional
+    cinematography analysis, and registers the result as a step output.
 
     Args:
-        video_path: Path to the reference video (.mp4).
+        reference_video_content_id: Content id of the reference video.
+        ctx: Step context bound to the active run + step.
         gemini_model: Gemini model identifier.
-        num_frames: Unused, kept for backward compatibility with CLI.
-        output_dir: Directory for the analysis output. Defaults to
-            the same directory as the video.
+        num_frames: Unused, kept for backward compatibility with the CLI.
 
     Returns:
-        AnalysisResult with analysis text and output path.
+        AnalysisResult with analysis text, content_id, and (when local) a
+        path to the convenience copy under runs/<run_id>/steps/analyze/.
     """
-    logger.info("Analyzing reference video: %s", video_path)
+    ctx.begin()
 
     client = get_gemini_client()
 
-    # Upload video via Gemini File API for native processing (1 FPS + audio)
-    logger.info("Uploading video to Gemini File API...")
-    video_file = client.files.upload(file=str(video_path))
-    logger.info("Upload started: %s (state: %s)", video_file.name, video_file.state)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        video_path = ctx.materialize_input(reference_video_content_id, Path(tmpdir))
+        logger.info("Analyzing reference video (content=%s)", reference_video_content_id[:16])
 
-    file_name = video_file.name
-    if not file_name:
-        raise RuntimeError("Gemini File API did not return a file name")
+        logger.info("Uploading video to Gemini File API...")
+        video_file = client.files.upload(file=str(video_path))
+        logger.info("Upload started: %s (state: %s)", video_file.name, video_file.state)
 
-    while video_file.state == "PROCESSING":
-        time.sleep(FILE_POLL_INTERVAL_SECONDS)
-        video_file = client.files.get(name=file_name)
-        logger.debug("File state: %s", video_file.state)
+        file_name = video_file.name
+        if not file_name:
+            raise RuntimeError("Gemini File API did not return a file name")
 
-    if video_file.state != "ACTIVE":
-        raise RuntimeError(f"Video file processing failed with state: {video_file.state}")
-    logger.info("Video file ready: %s", file_name)
+        while video_file.state == "PROCESSING":
+            time.sleep(FILE_POLL_INTERVAL_SECONDS)
+            video_file = client.files.get(name=file_name)
+            logger.debug("File state: %s", video_file.state)
 
-    system_prompt = load_system_prompt("video_analyst")
-    user_prompt = load_prompt("shot_breakdown_request", category="examples")
+        if video_file.state != "ACTIVE":
+            raise RuntimeError(f"Video file processing failed with state: {video_file.state}")
+        logger.info("Video file ready: %s", file_name)
 
-    logger.info("Sending video to Gemini for analysis...")
-    response = client.models.generate_content(
-        model=gemini_model,
-        contents=[
-            video_file,
-            f"This is a reference video for a commercial.\n\n{user_prompt}",
-        ],
-        config=types.GenerateContentConfig(
-            system_instruction=system_prompt,
-            max_output_tokens=4096,
-        ),
+        system_prompt = load_system_prompt("video_analyst")
+        user_prompt = load_prompt("shot_breakdown_request", category="examples")
+
+        logger.info("Sending video to Gemini for analysis...")
+        response = client.models.generate_content(
+            model=gemini_model,
+            contents=[
+                video_file,
+                f"This is a reference video for a commercial.\n\n{user_prompt}",
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                max_output_tokens=8192,
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
+            ),
+        )
+
+        analysis = response.text or ""
+        if not analysis:
+            raise RuntimeError("Gemini returned an empty analysis")
+        logger.info("Analysis complete")
+
+        try:
+            client.files.delete(name=file_name)
+            logger.debug("Cleaned up uploaded file: %s", file_name)
+        except (OSError, RuntimeError):
+            logger.debug("Could not delete uploaded file (non-critical)")
+
+    content_id = ctx.record(
+        name=OUTPUT_NAME,
+        data=analysis.encode("utf-8"),
+        original_name="analysis.md",
+        mime="text/markdown",
+        kind="text",
     )
+    ctx.set_attribute("gemini_model", gemini_model)
+    ctx.end()
 
-    analysis = response.text or ""
-    if not analysis:
-        raise RuntimeError("Gemini returned an empty analysis")
-    logger.info("Analysis complete")
-
-    # Clean up the uploaded file
-    try:
-        client.files.delete(name=file_name)
-        logger.debug("Cleaned up uploaded file: %s", file_name)
-    except (OSError, RuntimeError):
-        logger.debug("Could not delete uploaded file (non-critical)")
-
-    if output_dir is None:
-        output_dir = video_path.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    stem = video_path.stem
-    output_path = output_dir / f"{stem}-analysis.md"
-    output_path.write_text(analysis)
-    logger.info("Analysis saved to: %s", output_path)
-
-    return AnalysisResult(analysis_text=analysis, output_path=output_path)
+    output_path = ctx.run_store.local_step_output_path(ctx.run_id, STEP_NAME, OUTPUT_NAME)
+    return AnalysisResult(
+        analysis_text=analysis,
+        output_path=output_path or Path(""),
+        content_id=content_id,
+    )

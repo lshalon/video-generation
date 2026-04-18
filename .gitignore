@@ -108,6 +108,10 @@ Thumbs.db
 # Model weights (large ML models)
 models/
 
+# Content store + run records (managed by video_generation.store)
+data/library/
+data/runs/
+
 # Secrets
 .env.local
 .env.*.local

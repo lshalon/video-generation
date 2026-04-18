@@ -1,12 +1,21 @@
 """Tests for the generate_video step."""
 
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from video_generation.steps.generate_video import (
+    OUTPUT_NAME,
+    STEP_NAME,
     _build_video_arguments,
     generate_video,
+)
+from video_generation.store import (
+    CodeVersion,
+    ContentStore,
+    RunInputs,
+    RunParams,
+    RunStore,
+    StepContext,
 )
 
 
@@ -26,6 +35,32 @@ class TestBuildVideoArguments:
         assert args["duration"] == "8"
 
 
+def _setup(
+    content_store: ContentStore,
+    run_store: RunStore,
+    frame_bytes: bytes,
+    script_text: str,
+    params: RunParams,
+    code_version: CodeVersion,
+) -> tuple[StepContext, str, str]:
+    frame_ref = content_store.register_bytes(
+        frame_bytes, original_name="starting_frame.png", kind="image"
+    )
+    script_ref = content_store.register_bytes(
+        script_text.encode("utf-8"), original_name="script.md", kind="text"
+    )
+    inputs = RunInputs(reference_analysis=script_ref.content_id)
+    run = run_store.create_or_load(inputs=inputs, params=params, code_version=code_version)
+    ctx = StepContext(
+        content_store,
+        run_store,
+        run.run_id,
+        STEP_NAME,
+        inputs={"starting_frame": frame_ref.content_id, "script": script_ref.content_id},
+    )
+    return ctx, frame_ref.content_id, script_ref.content_id
+
+
 class TestGenerateVideo:
     @patch("video_generation.steps.generate_video.httpx")
     @patch("video_generation.steps.generate_video.fal_client")
@@ -37,12 +72,14 @@ class TestGenerateVideo:
         mock_httpx: MagicMock,
         dummy_frame_bytes: bytes,
         script_text: str,
-        tmp_path: Path,
+        content_store: ContentStore,
+        run_store: RunStore,
+        default_params: RunParams,
+        code_version: CodeVersion,
     ) -> None:
-        frame_path = tmp_path / "frame.png"
-        frame_path.write_bytes(dummy_frame_bytes)
-        out_dir = tmp_path / "videos"
-        out_dir.mkdir()
+        ctx, frame_id, script_id = _setup(
+            content_store, run_store, dummy_frame_bytes, script_text, default_params, code_version
+        )
 
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -53,22 +90,28 @@ class TestGenerateVideo:
         mock_fal.upload.return_value = "https://fal.media/uploaded.jpg"
         mock_fal.subscribe.return_value = {"video": {"url": "https://fal.media/video.mp4"}}
 
-        fake_video_bytes = b"\x00\x00\x00\x18ftypmp42"  # minimal mp4-ish header
+        fake_video_bytes = b"\x00\x00\x00\x18ftypmp42"
         mock_video_resp = MagicMock()
         mock_video_resp.content = fake_video_bytes
         mock_httpx.get.return_value = mock_video_resp
 
         result = generate_video(
-            frame_path,
-            script_text,
+            frame_id,
+            script_id,
+            ctx=ctx,
             claude_model="test-model",
             video_model="fal-ai/kling-video/v2.6/pro/image-to-video",
             duration="5",
-            output_dir=out_dir,
         )
 
+        assert result.content_id is not None
         assert result.video_path.exists()
         assert result.video_path.suffix == ".mp4"
+
+        run = run_store.get(ctx.run_id)
+        outputs = run.steps[STEP_NAME].outputs
+        assert outputs[OUTPUT_NAME] == result.content_id
+        assert "motion_prompt" in outputs
 
         subscribe_args = mock_fal.subscribe.call_args
         assert subscribe_args.args[0] == "fal-ai/kling-video/v2.6/pro/image-to-video"
@@ -86,12 +129,14 @@ class TestGenerateVideo:
         mock_httpx: MagicMock,
         dummy_frame_bytes: bytes,
         script_text: str,
-        tmp_path: Path,
+        content_store: ContentStore,
+        run_store: RunStore,
+        default_params: RunParams,
+        code_version: CodeVersion,
     ) -> None:
-        frame_path = tmp_path / "frame.png"
-        frame_path.write_bytes(dummy_frame_bytes)
-        out_dir = tmp_path / "videos"
-        out_dir.mkdir()
+        ctx, frame_id, script_id = _setup(
+            content_store, run_store, dummy_frame_bytes, script_text, default_params, code_version
+        )
 
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
@@ -107,15 +152,15 @@ class TestGenerateVideo:
         mock_httpx.get.return_value = mock_video_resp
 
         result = generate_video(
-            frame_path,
-            script_text,
+            frame_id,
+            script_id,
+            ctx=ctx,
             claude_model="test-model",
             video_model="fal-ai/bytedance/seedance/v1.5/pro/image-to-video",
             duration="8",
-            output_dir=out_dir,
         )
 
-        assert result.video_path.exists()
+        assert result.content_id is not None
 
         subscribe_args = mock_fal.subscribe.call_args
         api_args = subscribe_args.kwargs["arguments"]

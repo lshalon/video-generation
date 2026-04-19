@@ -1,0 +1,46 @@
+Based on the video script and reference materials below, write a detailed image generation prompt for an EXTREME CLOSE-UP of the model — this close-up will later be outpainted into the full first frame of the video, but RIGHT NOW we need only the close-up, with NO product visible.
+
+If a reference video has been attached, watch its very first moment and study the model's skin tone, makeup, hair colour and texture, and lighting style. Your close-up MUST plausibly belong to that same model so that, when the close-up is later expanded outward to the full portrait, the result is visually consistent.
+
+## Video Script
+$script
+
+## Reference Cinematography Analysis
+$reference_analysis
+
+## Your Task
+Write a prompt for an AI image generation model that will produce a TIGHT, SQUARE (1:1 aspect) close-up of the model's ear and the immediate surrounding skin — and absolutely nothing else worth noting in the frame. The product (jewellery) will be composited onto this close-up afterward, and the close-up will then be outpainted to the full portrait.
+
+The prompt MUST include detailed specifications for:
+
+1. **Framing and composition (CRITICAL)**
+   - EXTREME CLOSE-UP. Fill the frame with the visible ear, the earlobe, and the surrounding skin only — cheekbone area, temple, side of jaw, the start of the neck.
+   - The full face is NOT visible. Eyes, nose, and mouth should be cropped out of frame, or only minimally suggested at the very edge.
+   - Square 1:1 aspect ratio. The ear should be roughly centred — slightly toward the right or left third is fine if the head angle calls for it — and the lobe should be the focal point.
+   - Specify which ear is visible (left or right, from the camera's point of view), matching the head angle implied by the reference video's opening frame.
+
+2. **Camera and lens**
+   - Macro or near-macro feel — the kind of detail you'd see from an 85–135 mm lens at a tight crop, or a true macro lens. Skin pores, fine baby hairs, and subtle skin texture should be readable.
+   - Eye-level or slightly above, matching the reference's opening frame.
+   - Shallow depth of field is fine, but the earlobe and the surrounding skin should be in sharp focus.
+
+3. **Lighting setup**
+   - Match the reference video's lighting exactly: key light direction and quality (soft / hard, large softbox / small source), fill ratio, and any background bounce.
+   - Soft, even illumination on the earlobe so the editor will be able to composite the product cleanly later.
+   - Mention "studio lighting", "softbox", "beauty lighting", or other technical terms when applicable.
+
+4. **Skin, makeup, and hair (must match reference)**
+   - Skin tone, undertone, and any visible makeup (foundation finish, blush, contour) must match the reference model.
+   - Hair colour and texture must match the reference. Hair MUST be styled cleanly behind the visible ear so the lobe is fully exposed and unobstructed — no stray strands across the ear.
+   - Capture the texture of the skin honestly: pores, light peach fuzz, subtle shadow under the lobe. No airbrushed plastic look.
+
+5. **Background and environment**
+   - Whatever is visible behind the ear (a glimpse of the studio backdrop, a hint of hair) should match the reference video's environment so that, when the frame is later expanded, the surroundings can extend naturally.
+   - Keep the visible background extremely minimal and out of focus — the lobe is the subject.
+
+6. **Explicit exclusions**
+   - NO earrings, NO studs, NO hoops, NO posts, NO jewellery of any kind on the visible earlobe or anywhere in the frame. Empty, unadorned earlobe.
+   - NO piercings, holes, or marks on the lobe — the editor will composite the earring on later.
+   - NO other jewellery (necklaces, chains) visible at the edge of the frame.
+
+Format your response as a SINGLE DETAILED PARAGRAPH. Start with the framing and shot type, then camera and lens, then lighting, then skin and hair, then background, and finish with the explicit no-jewellery exclusions. Be technical, specific, and vivid — this prompt needs to produce a clean, professional close-up that can later be expanded into a full portrait without inconsistency.

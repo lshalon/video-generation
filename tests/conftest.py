@@ -26,12 +26,23 @@ def tmp_output_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def product_dir(tmp_path: Path) -> Path:
-    """Create a temp directory with dummy product images."""
+    """Create a temp directory with three dummy product images.
+
+    Each image gets a slightly different fill colour so the three files have
+    distinct sha256s (otherwise ``ContentStore.register_path`` would collapse
+    them into a single content id and per-image steps like captioning would
+    only run once).
+    """
     d = tmp_path / "product"
     d.mkdir()
-    for name in ["earring_on.webp", "earring_front_look.webp", "earring_side.png"]:
+    fills = {
+        "earring_on.webp": (200, 180, 160),
+        "earring_front_look.webp": (210, 190, 170),
+        "earring_side.png": (220, 200, 180),
+    }
+    for name, fill in fills.items():
         img = np.zeros((100, 100, 3), dtype=np.uint8)
-        img[:] = (200, 180, 160)  # light tan
+        img[:] = fill
         ext = Path(name).suffix.lstrip(".")
         fmt = ".png" if ext == "webp" else f".{ext}"
         _, buf = cv2.imencode(fmt, img)

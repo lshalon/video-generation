@@ -71,20 +71,31 @@ def test_full_pipeline_records_manifest_and_is_idempotent(
         usage_metadata=SimpleNamespace(prompt_token_count=10, candidates_token_count=20),
     )
 
-    # --- Stub Gemini (frame step: scene prompt + composite prompt + critique) ---
+    # --- Stub Gemini (frame step) ---
+    # Order matches the new 3-internal-stage pipeline:
+    #   Stage A:   close-up scene prompt
+    #   Stage 1.5: 3 captions (one per product image)
+    #   Stage B:   composite prompt + 1 critique
+    #   Stage C:   expand (outpaint) prompt
     gemini_client = MagicMock()
     mock_frame_gemini.return_value = gemini_client
     gemini_client.models.generate_content.side_effect = [
-        MagicMock(text="Studio portrait, empty ears."),
+        MagicMock(text="Tight close-up scene, unadorned earlobe."),
+        MagicMock(text="ON A REAL MODEL'S EAR \u2014 use as size ground truth."),
+        MagicMock(text="FRONT VIEW \u2014 macro of the earring."),
+        MagicMock(text="SIDE VIEW \u2014 profile of the earring."),
         MagicMock(text="Composite prompt"),
         _accepted_critique(),
+        MagicMock(text="Outpaint to a 3:4 portrait, preserving the close-up region exactly."),
     ]
 
     # --- Stub fal + httpx for frame step ---
+    # 3 fal calls: close-up t2i, composite edit, outpaint edit.
     fake_png = _png_bytes()
     mock_frame_fal.subscribe.side_effect = [
-        {"images": [{"url": "https://fake/scene.png"}]},
+        {"images": [{"url": "https://fake/closeup.png"}]},
         {"images": [{"url": "https://fake/composite.png"}]},
+        {"images": [{"url": "https://fake/full_frame.png"}]},
     ]
     mock_frame_fal.upload.return_value = "https://fake/upload.png"
     mock_frame_httpx.get.return_value = MagicMock(content=fake_png, raise_for_status=lambda: None)
@@ -114,12 +125,16 @@ def test_full_pipeline_records_manifest_and_is_idempotent(
     for step in manifest["steps"].values():
         assert step["status"] == "completed"
 
-    # Frame step recorded its intermediates.
+    # Frame step recorded its intermediates for the 3 internal stages.
     frame_outputs = manifest["steps"]["frame"]["outputs"]
-    assert "scene_prompt" in frame_outputs
-    assert "composite_prompt" in frame_outputs
-    assert "starting_frame_v0" in frame_outputs
-    assert "starting_frame" in frame_outputs
+    assert "closeup_scene_prompt" in frame_outputs  # Stage A prompt
+    assert "closeup_scene" in frame_outputs  # Stage A image (no jewellery)
+    assert "product_captions" in frame_outputs  # Stage 1.5
+    assert "composite_prompt" in frame_outputs  # Stage B prompt
+    assert "closeup_composite_v0" in frame_outputs  # Stage B initial composite
+    assert "closeup_composite_final" in frame_outputs  # Stage B accepted composite
+    assert "expand_prompt" in frame_outputs  # Stage C prompt
+    assert "starting_frame" in frame_outputs  # Stage C outpainted final frame
 
     # Video step output exists on disk.
     assert result1.video_path.exists()

@@ -27,14 +27,17 @@ flowchart TD
         B1 --> B2 --> B3
     end
 
-    subgraph step3 [Step 3: Generate Starting Frame]
-        C1["Gemini writes scene prompt (sees ref video)"]
-        C2["Nano Banana 2 generates base scene"]
-        C3["Gemini writes composite prompt"]
-        C4["Nano Banana 2 Edit composites product"]
-        C5["Gemini critique loop (optional)"]
-        C6["Starting frame (.png)"]
-        C1 --> C2 --> C3 --> C4 --> C5 --> C6
+    subgraph step3 [Step 3: Generate Starting Frame - close-up then outpaint]
+        C1["Stage A: Gemini writes close-up scene prompt (sees ref video)"]
+        C2["Nano Banana 2 generates 1:1 close-up of empty ear"]
+        C3["Stage 1.5: Gemini captions each product image (cached)"]
+        C4["Stage B: Gemini writes composite prompt"]
+        C5["Nano Banana 2 Edit composites earring onto close-up"]
+        C6["Gemini critique loop on close-up (optional)"]
+        C7["Stage C: Gemini writes outpaint prompt (sees ref video)"]
+        C8["Nano Banana 2 Edit expands close-up to 3:4 portrait"]
+        C9["Starting frame (.png)"]
+        C1 --> C2 --> C3 --> C4 --> C5 --> C6 --> C7 --> C8 --> C9
     end
 
     subgraph step4 [Step 4: Generate Video]
@@ -51,7 +54,7 @@ flowchart TD
     ProductImages --> step3
     B3 --> step3
     B3 --> step4
-    C4 --> step4
+    C9 --> step4
 ```
 
 ## Prerequisites
@@ -134,16 +137,22 @@ data/
 ├── library/                       # Content-addressed blobs
 │   └── <aa>/<sha256><ext>
 │   └── <aa>/<sha256>.meta.json
+│   └── <aa>/<sha256>.caption.json # Gemini caption sidecar (product images)
 └── runs/<run_id>/
     ├── manifest.json              # Inputs, params, code_version, step records
     └── steps/
         ├── analyze/analysis.md
         ├── script/script.md
-        ├── frame/scene_prompt.txt
-        ├── frame/composite_prompt.txt
-        ├── frame/starting_frame_v0.png
-        ├── frame/critique_v1.json
-        ├── frame/starting_frame.png
+        ├── frame/closeup_scene_prompt.txt        # Stage A prompt
+        ├── frame/closeup_scene.png               # Stage A image (no jewellery)
+        ├── frame/product_captions.json           # Stage 1.5 captions
+        ├── frame/composite_prompt.txt            # Stage B prompt
+        ├── frame/closeup_composite_v0.png        # Stage B initial composite
+        ├── frame/critique_v{i}.json              # Stage B critique iterations
+        ├── frame/closeup_composite_v{i}.png      # Stage B refined composites
+        ├── frame/closeup_composite_final.png     # Stage B accepted close-up
+        ├── frame/expand_prompt.txt               # Stage C outpaint prompt
+        ├── frame/starting_frame.png              # Stage C outpainted final frame
         └── video/{motion_prompt.txt, video.mp4}
 ```
 
@@ -182,35 +191,60 @@ as JPEG `Part`s; the analysis is inlined as text.
 
 **Module:** `video_generation.steps.generate_starting_frame`
 
-Multi-stage image generation with an optional iterative refinement loop:
+Three-stage image generation built around a *close-up then outpaint* strategy.
+The earlier "single full-portrait composite + critique loop" approach kept
+running into Nano Banana 2 Edit's bias against shrinking small objects: a
+~4 mm earring on a 3:4 portrait is only a few dozen pixels tall, and the
+editor would not converge on the correct size no matter how aggressive the
+critique. Generating the close-up first sidesteps that bias by giving the
+editor a canvas where the earring is naturally one of the dominant objects;
+the final 3:4 portrait is then produced in a single deterministic outpaint.
 
-1. **Gemini 3.1 Pro** writes a scene prompt for an empty-eared model. When a
-   reference video is registered, the video is uploaded to the Gemini File API
-   and attached to the call so Gemini can match its opening frame's
-   cinematography (lens, lighting, pose, framing).
-2. **Nano Banana 2** (Google Gemini 3.1 Flash Image, via fal) generates the
-   base scene from that prompt (text-to-image, 3:4 portrait).
-3. **Gemini 3.1 Pro** writes a composite prompt by jointly looking at the base
-   scene and all product reference images.
-4. **Nano Banana 2 Edit** composites the product onto the scene.
-5. *(Optional, off by default if `--max-refinements 0`)* **Gemini 3.1 Pro**
-   critiques the composite against the product references via a structured
-   `CompositesCritique` JSON schema and emits a correction prompt; the editor
-   re-runs up to `--max-refinements` times.
+**Stage A — generate the close-up scene (no jewellery).**
 
-> Note on the critique loop: Nano Banana 2 Edit's first composite is usually
-> excellent. The critique loop, with the existing aggressive prompt, tends to
-> demand cumulative shrinkage and degrades quality on each iteration. Set
-> `--max-refinements 0` to disable it (recommended default until the critic
-> prompt is rewritten to detect over-correction). See
-> [storage-and-runs.md](storage-and-runs.md) for full step-output schema.
+1. **Gemini 3.1 Pro** writes a *close-up* scene prompt (extreme 1:1 crop of the
+   model's ear, earlobe, and surrounding skin). When a reference video is
+   registered, the video is uploaded to the Gemini File API and attached so
+   Gemini can match its opening frame's lighting, skin tone, and styling.
+2. **Nano Banana 2** (text-to-image, 1:1, `NANO_BANANA_RESOLUTION=2K`) renders
+   that close-up.
+
+**Stage 1.5 — caption every product image (cached forever).**
+
+3. **Gemini 3.1 Pro** independently captions each unique product image with a
+   one-sentence description that names its role (front view, side view,
+   on-model size reference, etc.). Captions are persisted as
+   `library/<aa>/<sha>.caption.json` sidecars in the content store, so once
+   generated they are reused by every subsequent run for that exact image.
+
+**Stage B — composite earring onto the close-up + critique loop.**
+
+4. **Gemini 3.1 Pro** (`thinking_level=HIGH`) writes the composite prompt by
+   jointly looking at the captioned close-up scene and all captioned product
+   reference images.
+5. **Nano Banana 2 Edit** (1:1, 2K) composites the earring onto the close-up.
+6. *(Optional)* **Gemini 3.1 Pro** critiques the composite against the
+   captioned product references via a structured `CompositesCritique` JSON
+   schema and emits a correction prompt. The editor re-runs with
+   `[current_composite, *all_product_references]` as input images so the
+   correction has anchors. The loop iterates up to `--max-refinements` times.
+
+**Stage C — outpaint the accepted close-up to the final 3:4 portrait.**
+
+7. **Gemini 3.1 Pro** (`thinking_level=HIGH`) writes a single outpaint
+   instruction grounded in the close-up composite + (optional) reference
+   video / analysis. The instruction tells the editor to PRESERVE every
+   pixel of the close-up region exactly and INVENT only the surrounding
+   head, hair, shoulders, and background to match the reference framing.
+8. **Nano Banana 2 Edit** (3:4, 2K) expands the canvas in one shot. There is
+   no critique loop on this stage by design.
 
 | | |
 |---|---|
-| **External services** | Gemini 3.1 Pro (scene prompt, composite prompt, critique), Nano Banana 2 + Nano Banana 2 Edit (fal.ai) |
+| **External services** | Gemini 3.1 Pro (close-up scene prompt, captions, composite prompt, critique, expand prompt), Nano Banana 2 + Nano Banana 2 Edit (fal.ai) |
 | **Input** | Script content id, product image content ids, optional reference video + analysis content ids |
-| **Output** | `starting_frame.png` (final) plus per-iteration `starting_frame_v{i}.png`, `scene_prompt.txt`, `base_scene.png`, `composite_prompt.txt`, `critique_v{i}.json` |
-| **Prompts used** | `examples/scene_without_product.txt`, `examples/write_composite_prompt.txt`, `examples/critique_composite.txt` |
+| **Output** | `starting_frame.png` (final 3:4 outpainted), `closeup_scene.png` + `closeup_scene_prompt.txt`, `product_captions.json`, `composite_prompt.txt`, per-iteration `closeup_composite_v{i}.png` + `critique_v{i}.json`, `closeup_composite_final.png`, `expand_prompt.txt` |
+| **Prompts used** | `examples/closeup_scene_without_product.txt` (Stage A), `examples/caption_product_image.txt` (Stage 1.5), `examples/write_composite_prompt.txt` + `examples/critique_composite.txt` (Stage B), `examples/expand_to_full_frame.txt` (Stage C) |
 
 ### Step 4: Generate Video
 
@@ -236,12 +270,12 @@ Claude writes a short motion prompt from the script and starting frame, then the
 | `--run-id` | `None` | Inspect/resume a specific run id |
 | `--variant` | `""` | Fork tag added to params; same inputs/code with a different variant fork into a new run id |
 | `--output-dir` | `data/outputs` | (Legacy) Outputs are now under `<storage>/runs/<run_id>/steps/` |
-| `--edit-model` | `fal-ai/nano-banana-2/edit` | Fal endpoint for image editing/compositing (the code branches on `"nano-banana"` vs Seedream so flipping back via this flag still works) |
+| `--edit-model` | `fal-ai/nano-banana-2/edit` | Fal endpoint for image editing — used by **both** Stage B (composite + critique corrections, 1:1) and Stage C (outpaint to 3:4). The code branches on the model id and supports `nano-banana`, `gpt-image`, `flux-pro/kontext`, and Seedream-family endpoints. The Stage A *text-to-image* model is currently hard-coded to `fal-ai/nano-banana-2` (separate constant `BASE_SCENE_TEXT_TO_IMAGE`). |
 | `--video-model` | `fal-ai/kling-video/v2.6/pro/image-to-video` | Fal endpoint for video generation |
 | `--video-duration` | `"5"` | Video length in seconds |
 | `--claude-model` | `claude-sonnet-4-20250514` | Claude model id (used only by the video motion-prompt step) |
 | `--gemini-model` | `gemini-3.1-pro-preview` | Gemini model id (analysis, script, scene prompt, composite prompt, critique) |
-| `--max-refinements` | `3` | Max critique-and-correct iterations during starting-frame generation. Pass `0` to skip the critique loop entirely (often higher quality with Nano Banana 2). |
+| `--max-refinements` | `3` | Max critique-and-correct iterations during **Stage B only** (close-up composite). Stage C (outpaint) is single-shot regardless. Pass `0` to skip the Stage B critique loop. |
 | `--num-frames` | `20` | Unused (kept for backward compatibility) |
 | `--step` | `None` | Run single step: `analyze`, `script`, `frame`, `video` |
 | `-v` / `--verbose` | `False` | Enable debug logging |
@@ -288,32 +322,30 @@ steps are skipped on re-run, partial work resumes.
 ### Gemini call configuration
 
 All Gemini calls in the pipeline (analysis, script, scene prompt, composite
-prompt, critique) explicitly set:
+prompt, captioning, critique) explicitly set:
 
 ```python
 config=types.GenerateContentConfig(
-    max_output_tokens=...,                  # generous budgets, see below
     thinking_config=types.ThinkingConfig(
-        thinking_level=types.ThinkingLevel.LOW
+        thinking_level=types.ThinkingLevel.LOW   # or HIGH for composite
     ),
 )
 ```
 
 `ThinkingLevel.LOW` is required because Gemini 3.1 Pro Preview enables a
 "thinking" stage by default that can consume thousands of tokens *before* the
-final output. Without an explicit level, the model can blow through the
-output budget while still reasoning, and partial scratchpad contents leak
-into `response.text`.
+final output. Without an explicit level, partial scratchpad contents leak
+into `response.text`. The composite-prompt step uses `HIGH` because the
+visual analysis (size estimation, design transcription) is exactly what
+produces a high-fidelity edit prompt.
 
-Per-call output budgets:
-
-| Step | `max_output_tokens` |
-|---|---|
-| `analyze` | 8192 |
-| `script` | 8192 |
-| `frame` — scene prompt | 4096 |
-| `frame` — composite prompt | 4096 |
-| `frame` — critique (structured JSON) | 2048 |
+We deliberately do **not** set `max_output_tokens`. Output length is
+controlled by the prompts themselves (e.g. captioning enforces "one
+sentence, max 30 words"; the composite prompt asks for "one dense paragraph,
+~6–10 sentences" + structured DO / DO NOT lists; the critique returns a
+schema-constrained JSON object). Hard token caps were causing mid-sentence
+truncations under `ThinkingLevel.HIGH`; letting the prompt do the work is
+both shorter code and more predictable behaviour.
 
 ## Prompt Templates
 
@@ -333,9 +365,11 @@ All prompts live in `data/prompts/` and are loaded by the `video_generation.prom
 |---|---|
 | `shot_breakdown_request.txt` | Step 1 (analyze reference) |
 | `emulate_reference_script.txt` | Step 2 (write script) |
-| `scene_without_product.txt` | Step 3a (scene prompt — also receives reference video binary when provided) |
-| `write_composite_prompt.txt` | Step 3b (composite prompt from scene + product images) |
-| `critique_composite.txt` | Step 3c (structured critique of composite, only when `--max-refinements > 0`) |
+| `closeup_scene_without_product.txt` | Step 3 / Stage A (close-up scene prompt — also receives reference video binary when provided) |
+| `caption_product_image.txt` | Step 3 / Stage 1.5 (one-sentence content-tied caption per product image, results cached as `library/<aa>/<sha>.caption.json`) |
+| `write_composite_prompt.txt` | Step 3 / Stage B (composite prompt from close-up + captioned product images) |
+| `critique_composite.txt` | Step 3 / Stage B critique (structured critique of close-up composite, only when `--max-refinements > 0`) |
+| `expand_to_full_frame.txt` | Step 3 / Stage C (outpaint instruction expanding the close-up to the final 3:4 portrait) |
 | `video_motion_prompt.txt` | Step 4 (motion prompt for the video model) |
 | `starting_frame_prompt.txt` | Not used in pipeline (notebook legacy) |
 | `locate_ear_region.txt` | Not used in pipeline (notebook legacy) |

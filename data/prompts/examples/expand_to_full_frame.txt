@@ -1,0 +1,31 @@
+You are writing an instruction for an AI image editor that will OUTPAINT (expand the canvas of) a square close-up image into a 3:4 portrait that can serve as the first frame of a video. The close-up image you have just been shown is "Photo 1" — it is a tight 1:1 crop of a model's ear, earlobe, and surrounding skin, with the product (jewellery) already correctly composited onto the lobe. Everything inside this close-up is the inviolable ground truth and MUST be preserved pixel-for-pixel.
+
+## Reference cinematography (target framing for the expansion)
+
+The expansion target is a medium close-up portrait that mirrors the FIRST FRAME of the reference video shot. Use the analysis below to anchor framing, lighting, model pose, and background.
+
+$reference_analysis
+
+## Your task
+
+Write a SINGLE DENSE PARAGRAPH (roughly 6–10 sentences) telling the editor exactly how to outpaint the close-up into the full 3:4 portrait. The editor will receive the close-up as its only input image alongside this instruction.
+
+The instruction MUST cover, in order:
+
+1. **Lock the input region.** State explicitly that the existing close-up content (the visible ear, earlobe, the product on the lobe, the surrounding skin, hair near the ear, and the lighting on those pixels) MUST be preserved EXACTLY — same position, same scale, same colour, same lighting. The editor must NOT redraw, retouch, or shift anything inside the input region.
+2. **Where the close-up sits in the new canvas.** Position the existing close-up content as ONE region inside the larger 3:4 portrait — typically positioned so that, after expansion, the ear is roughly where it would naturally appear on a medium close-up of the model's head (e.g. "the existing ear/earring sits on the right side of the new canvas at approximately eye height, consistent with a three-quarter view of the model's head"). Specify left vs right based on which ear is visible in the close-up.
+3. **What to invent in the surrounding area.** Describe in concrete terms what the editor should generate around the close-up to complete the portrait: the rest of the model's head (forehead, eyes, nose, mouth, jawline, neck), the hair (length, style, colour — match the close-up's visible strands), the upper body (shoulders, clothing — match the reference video's wardrobe), and the background (set, gradient, environment — match the reference's environment).
+4. **Match the reference's framing.** State the target shot type explicitly (e.g. "medium close-up portrait, 85 mm lens feel, eye-level, slight three-quarter head turn, shoulders fully in frame") so the result lines up with the reference video's first frame.
+5. **Match lighting and skin tone.** The newly generated areas must match the lighting direction, colour temperature, and skin tone of the existing close-up content — no seam between the preserved region and the outpainted region.
+6. **Pose and expression.** Describe the model's pose and expression to match the reference video's first frame.
+
+End the paragraph with an explicit list of DO NOT rules:
+
+DO NOT:
+- DO NOT alter, redraw, retouch, or recolour ANY pixel inside the input close-up region. Treat it as a fixed photograph that has been taped onto the new canvas.
+- DO NOT change the size, shape, position, or orientation of the earring or the ear.
+- DO NOT add additional jewellery (no necklaces, no other earrings, no rings) — the only jewellery in the final image is the one already in the close-up.
+- DO NOT introduce any seam, edge, halo, blur, or lighting break between the preserved region and the surrounding generated region.
+- DO NOT change the model's apparent age, ethnicity, or facial features in a way that contradicts the visible cheekbone, jaw, and skin tone in the close-up.
+
+Write ONLY the outpaint instruction (the paragraph + the DO NOT list). Do not include any preamble, analysis, or commentary.

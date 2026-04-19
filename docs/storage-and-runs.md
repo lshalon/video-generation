@@ -39,17 +39,27 @@ data/
 ├── library/                                 # Content-addressed blobs
 │   └── <aa>/                                # First two hex chars of sha256
 │       ├── <sha256><ext>                    # The bytes
-│       └── <sha256>.meta.json               # ContentMeta sidecar
+│       ├── <sha256>.meta.json               # ContentMeta sidecar
+│       └── <sha256>.caption.json            # Optional Gemini caption sidecar
+│                                            #   (product images only — see
+│                                            #   ContentStore.set_caption)
 └── runs/
     └── <run_id>/
         ├── manifest.json                    # RunRecord
         └── steps/                           # Convenience copies (human-browsable)
             ├── analyze/analysis.md
             ├── script/script.md
-            ├── frame/{scene_prompt.txt, base_scene.png,
-            │          composite_prompt.txt, starting_frame_v0.png,
-            │          critique_v1.json, starting_frame_v1.png, …,
-            │          starting_frame.png}
+            ├── frame/                       # close-up then outpaint flow
+            │   ├── closeup_scene_prompt.txt        # Stage A prompt
+            │   ├── closeup_scene.png               # Stage A image (1:1, no jewellery)
+            │   ├── product_captions.json           # Stage 1.5 (resolved per-image captions)
+            │   ├── composite_prompt.txt            # Stage B prompt
+            │   ├── closeup_composite_v0.png        # Stage B initial composite (1:1)
+            │   ├── critique_v{i}.json              # Stage B critique iterations
+            │   ├── closeup_composite_v{i}.png      # Stage B refined composites
+            │   ├── closeup_composite_final.png     # Stage B accepted close-up
+            │   ├── expand_prompt.txt               # Stage C outpaint prompt
+            │   └── starting_frame.png              # Stage C outpainted final 3:4 portrait
             └── video/{motion_prompt.txt, video.mp4}
 ```
 
@@ -57,6 +67,12 @@ The bytes under `runs/<run_id>/steps/` are *copies* of the canonical content
 in `library/`. They exist so a developer can browse a run directory without
 resolving content ids; deleting them is safe — the manifest holds the
 authoritative content id pointers.
+
+The `<sha>.caption.json` sidecar is written by
+`ContentStore.set_caption(content_id, caption, model=...)` (used by Stage 1.5
+of the frame step and by `scripts/precaption_products.py`). Once present it
+is reused by every future run that references the same product image, so
+captioning is effectively a one-time cost per unique photo.
 
 For `--storage gdrive:<folder-id>`, the same key namespace is mirrored as a
 nested folder hierarchy under the configured root folder in Drive.
@@ -77,12 +93,12 @@ register exactly once; re-registering returns the existing
   "size": 184320,
   "mime": "image/png",
   "kind": "image",
-  "original_name": "starting_frame_v2.png",
+  "original_name": "closeup_composite_v1.png",
   "registered_at": "2026-04-18T16:24:17Z",
   "produced_by": {
     "run_id": "9f3e2c4a8d1b7e60",
     "step": "frame",
-    "output_name": "starting_frame_v2"
+    "output_name": "closeup_composite_v1"
   }
 }
 ```
@@ -103,6 +119,9 @@ API (see `ContentStore` in
 | `get_meta(content_id)` | Read just the metadata sidecar. |
 | `get_ref(content_id)` | Combined handle. |
 | `materialize(content_id, dest)` | Write blob bytes to `dest` (file or directory). Useful when handing bytes to libraries that need a real filesystem path (e.g. `fal_client.upload_file`). |
+| `get_caption(content_id)` / `get_caption_record(content_id)` | Return the cached Gemini caption (text only / full sidecar with model id) for a product image, or `None`. |
+| `set_caption(content_id, text, model=)` | Persist a caption sidecar (`library/<aa>/<sha>.caption.json`). Used by Stage 1.5 of the frame step and by `scripts/precaption_products.py`. |
+| `delete_caption(content_id)` | Remove the caption sidecar (used by `precaption_products.py --force`). |
 
 ---
 
@@ -181,17 +200,29 @@ share `git_sha=… git_dirty=true`). To get a fresh run id, commit, or pass
     "script": { "...": "..." },
     "frame":  {
       "outputs": {
-        "scene_prompt": "...",
-        "base_scene": "...",
+        "closeup_scene_prompt": "...",
+        "closeup_scene": "...",
+        "product_captions": "...",
         "composite_prompt": "...",
-        "starting_frame_v0": "...",
+        "closeup_composite_v0": "...",
         "critique_v1": "...",
-        "starting_frame_v1": "...",
+        "closeup_composite_v1": "...",
+        "closeup_composite_final": "...",
+        "expand_prompt": "...",
         "starting_frame": "..."
       },
       "attributes": {
-        "accepted": true,
-        "refinements_done": 1,
+        "closeup_accepted": true,
+        "closeup_refinements_done": 1,
+        "max_refinements": 3,
+        "outpaint_done": true,
+        "gemini_model": "gemini-3.1-pro-preview",
+        "edit_model": "fal-ai/nano-banana-2/edit",
+        "base_scene_text_to_image_model": "fal-ai/nano-banana-2",
+        "used_reference_video": true,
+        "used_reference_analysis": true,
+        "captions_generated": 0,
+        "captions_reused": 4,
         "final_critique": { "...": "..." }
       }
     },
@@ -378,3 +409,27 @@ uv run python scripts/migrate_to_library.py
 This walks the input tree, registers each file via `ContentStore`, and
 emits collection JSONs under `library/collections/` so the same product
 sets and references can be referred to by stable IDs in future runs.
+
+---
+
+## Helper scripts
+
+A few one-shot scripts live under `scripts/` and operate directly on the
+content store / run records:
+
+| Script | Purpose |
+|---|---|
+| `scripts/migrate_to_library.py` | Register `data/inputs/jewelry/**` files into the content store (see Migration above). |
+| `scripts/precaption_products.py` | Pre-generate Gemini captions for every product image in a directory and persist them as `library/<aa>/<sha>.caption.json` sidecars. Subsequent pipeline runs will reuse the captions verbatim with no LLM call. Idempotent; pass `--force` to re-caption. |
+| `scripts/compare_edit_models.py` | Apples-to-apples bake-off across `--edit-model` candidates. Loads the initial composite and a chosen critique iteration from a previous run, then calls each candidate edit model with the *same* prompt + *same* reference images and writes outputs to `data/comparisons/<run_id>/<model_slug>.png`. Useful for picking between Nano Banana 2 Edit, GPT Image 1.5, FLUX Kontext multi, and Seedream 4.5. |
+
+Example:
+
+```bash
+# Caption every product image once so future runs skip Stage 1.5 LLM calls
+uv run python scripts/precaption_products.py \
+  --product-dir data/inputs/jewelry/product
+
+# Compare edit models on the latest run's critique correction
+uv run python scripts/compare_edit_models.py
+```

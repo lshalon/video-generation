@@ -128,7 +128,9 @@ and the per-step outputs each invocation produced.
 - Fork the same triple: `--variant <tag>` to register a sibling run.
 
 See [storage-and-runs.md](storage-and-runs.md) for the full content-store
-layout, manifest schema, and Google Drive setup.
+layout, manifest schema, Google Drive setup, and the helper scripts under
+`scripts/` (`migrate_to_library.py`, `precaption_products.py`,
+`compare_edit_models.py`).
 
 ### Browsing a run on disk
 
@@ -373,5 +375,6 @@ All prompts live in `data/prompts/` and are loaded by the `video_generation.prom
 | `video_motion_prompt.txt` | Step 4 (motion prompt for the video model) |
 | `starting_frame_prompt.txt` | Not used in pipeline (notebook legacy) |
 | `locate_ear_region.txt` | Not used in pipeline (notebook legacy) |
+| `analyze_product.txt` | Not used in pipeline (notebook legacy) |
 | `image_generation.txt` | Not used in pipeline (example) |
 | `video_generation.txt` | Not used in pipeline (example) |

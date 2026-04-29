@@ -1,150 +1,114 @@
-"""Step 1: Analyze a reference video using Claude vision."""
+"""Step 1: Analyze a reference video using Gemini native video understanding."""
 
-import base64
+from __future__ import annotations
+
 import logging
+import tempfile
+import time
 from pathlib import Path
 
-import cv2
-import numpy as np
+from google.genai import types
 
-from video_generation.clients import get_anthropic_client
+from video_generation.clients import get_gemini_client
 from video_generation.config import AnalysisResult
 from video_generation.prompts import load_prompt, load_system_prompt
+from video_generation.store import StepContext
 
 logger = logging.getLogger(__name__)
 
-
-def extract_frames(video_path: Path, num_frames: int = 20) -> list[np.ndarray]:
-    """Extract evenly-spaced frames from a video.
-
-    Args:
-        video_path: Path to the video file.
-        num_frames: Number of frames to extract.
-
-    Returns:
-        List of frames as numpy arrays (BGR format).
-    """
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise ValueError(f"Could not open video: {video_path}")
-
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    duration = total_frames / fps
-
-    logger.info("Video info: %d frames, %.1f FPS, %.1fs duration", total_frames, fps, duration)
-
-    frame_indices = np.linspace(0, total_frames - 1, num_frames, dtype=int)
-
-    frames = []
-    for idx in frame_indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ret, frame = cap.read()
-        if ret:
-            frames.append(frame)
-        else:
-            logger.warning("Could not read frame %d", idx)
-
-    cap.release()
-    logger.info("Extracted %d frames", len(frames))
-    return frames
-
-
-def frame_to_base64(frame: np.ndarray, max_size: int = 1024) -> str:
-    """Convert a frame to base64-encoded JPEG.
-
-    Args:
-        frame: Frame as numpy array (BGR format).
-        max_size: Maximum dimension (width or height).
-
-    Returns:
-        Base64-encoded JPEG string.
-    """
-    h, w = frame.shape[:2]
-    if max(h, w) > max_size:
-        scale = max_size / max(h, w)
-        new_w, new_h = int(w * scale), int(h * scale)
-        frame = cv2.resize(frame, (new_w, new_h))
-
-    _, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
-    return base64.standard_b64encode(buffer).decode("utf-8")
+DEFAULT_GEMINI_MODEL = "gemini-3.1-pro-preview"
+FILE_POLL_INTERVAL_SECONDS = 5
+STEP_NAME = "analyze"
+OUTPUT_NAME = "analysis"
 
 
 def analyze_reference(
-    video_path: Path,
-    *,
-    claude_model: str = "claude-sonnet-4-20250514",
-    num_frames: int = 20,
-    output_dir: Path | None = None,
+    reference_video_content_id: str,
+    ctx: StepContext,
+    gemini_model: str = DEFAULT_GEMINI_MODEL,
+    num_frames: int = 20,  # noqa: ARG001  - kept for backwards compat with the CLI
 ) -> AnalysisResult:
     """Analyze a reference video and produce a shot breakdown.
 
-    Extracts frames from the video, sends them to Claude with the
-    video_analyst system prompt, and saves the resulting analysis.
+    Materializes the reference video bytes from the content store to a
+    temp file, uploads to the Gemini File API, asks Gemini for a professional
+    cinematography analysis, and registers the result as a step output.
 
     Args:
-        video_path: Path to the reference video (.mp4).
-        claude_model: Claude model identifier.
-        num_frames: Number of frames to extract.
-        output_dir: Directory for the analysis output. Defaults to
-            the same directory as the video.
+        reference_video_content_id: Content id of the reference video.
+        ctx: Step context bound to the active run + step.
+        gemini_model: Gemini model identifier.
+        num_frames: Unused, kept for backward compatibility with the CLI.
 
     Returns:
-        AnalysisResult with analysis text and output path.
+        AnalysisResult with analysis text, content_id, and (when local) a
+        path to the convenience copy under runs/<run_id>/steps/analyze/.
     """
-    logger.info("Analyzing reference video: %s", video_path)
+    ctx.begin()
 
-    frames = extract_frames(video_path, num_frames)
+    client = get_gemini_client()
 
-    frame_images = [
-        {
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/jpeg",
-                "data": frame_to_base64(frame),
-            },
-        }
-        for frame in frames
-    ]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        video_path = ctx.materialize_input(reference_video_content_id, Path(tmpdir))
+        logger.info("Analyzing reference video (content=%s)", reference_video_content_id[:16])
 
-    system_prompt = load_system_prompt("video_analyst")
-    user_prompt = load_prompt("shot_breakdown_request", category="examples")
+        logger.info("Uploading video to Gemini File API...")
+        video_file = client.files.upload(file=str(video_path))
+        logger.info("Upload started: %s (state: %s)", video_file.name, video_file.state)
 
-    content = frame_images + [
-        {
-            "type": "text",
-            "text": (
-                f"These are {len(frames)} frames extracted from a video, "
-                f"shown in chronological order.\n\n{user_prompt}"
+        file_name = video_file.name
+        if not file_name:
+            raise RuntimeError("Gemini File API did not return a file name")
+
+        while video_file.state == "PROCESSING":
+            time.sleep(FILE_POLL_INTERVAL_SECONDS)
+            video_file = client.files.get(name=file_name)
+            logger.debug("File state: %s", video_file.state)
+
+        if video_file.state != "ACTIVE":
+            raise RuntimeError(f"Video file processing failed with state: {video_file.state}")
+        logger.info("Video file ready: %s", file_name)
+
+        system_prompt = load_system_prompt("video_analyst")
+        user_prompt = load_prompt("shot_breakdown_request", category="examples")
+
+        logger.info("Sending video to Gemini for analysis...")
+        response = client.models.generate_content(
+            model=gemini_model,
+            contents=[
+                video_file,
+                f"This is a reference video for a commercial.\n\n{user_prompt}",
+            ],
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW),
             ),
-        }
-    ]
+        )
 
-    client = get_anthropic_client()
-    logger.info("Sending %d frames to Claude for analysis...", len(frames))
+        analysis = response.text or ""
+        if not analysis:
+            raise RuntimeError("Gemini returned an empty analysis")
+        logger.info("Analysis complete")
 
-    response = client.messages.create(
-        model=claude_model,
-        max_tokens=4096,
-        system=system_prompt,
-        messages=[{"role": "user", "content": content}],  # type: ignore[typeddict-item]
+        try:
+            client.files.delete(name=file_name)
+            logger.debug("Cleaned up uploaded file: %s", file_name)
+        except (OSError, RuntimeError):
+            logger.debug("Could not delete uploaded file (non-critical)")
+
+    content_id = ctx.record(
+        name=OUTPUT_NAME,
+        data=analysis.encode("utf-8"),
+        original_name="analysis.md",
+        mime="text/markdown",
+        kind="text",
     )
+    ctx.set_attribute("gemini_model", gemini_model)
+    ctx.end()
 
-    analysis: str = response.content[0].text  # type: ignore[union-attr]
-    logger.info(
-        "Analysis complete (input: %d, output: %d tokens)",
-        response.usage.input_tokens,
-        response.usage.output_tokens,
+    output_path = ctx.run_store.local_step_output_path(ctx.run_id, STEP_NAME, OUTPUT_NAME)
+    return AnalysisResult(
+        analysis_text=analysis,
+        output_path=output_path or Path(""),
+        content_id=content_id,
     )
-
-    if output_dir is None:
-        output_dir = video_path.parent
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    stem = video_path.stem
-    output_path = output_dir / f"{stem}-analysis.md"
-    output_path.write_text(analysis)
-    logger.info("Analysis saved to: %s", output_path)
-
-    return AnalysisResult(analysis_text=analysis, output_path=output_path)

@@ -1,0 +1,8 @@
+{
+  "acceptable": false,
+  "issues": [
+    "The star earring in the composite is significantly too large compared to the reference on-model photo (Figure 4). In the reference, the star stud is very small relative to the earlobe - roughly 1/4 the height of the earlobe. In the composite, the star earring appears to be nearly 2/3 the height of the earlobe, making it approximately 2-3x too large.",
+    "The earring in the composite appears overly prominent and dominant, losing the delicate, dainty quality visible in the reference photos."
+  ],
+  "correction_prompt": "Make the diamond star stud earring on the model's earlobe approximately 60% smaller. It should be a very small, delicate stud taking up only about 1/4 of the earlobe height. Keep the same position on the earlobe and maintain the same design, just significantly reduce its size to look like a tiny dainty stud."
+}

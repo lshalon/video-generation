@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 
 if TYPE_CHECKING:
     from anthropic import Anthropic
+    from google.genai import Client as GenaiClient
     from openai import OpenAI
 
 
@@ -17,6 +18,7 @@ API_KEYS = {
     "openai": "OPENAI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "claude": "ANTHROPIC_API_KEY",  # Alias
+    "gemini": "GEMINI_API_KEY",
     "kling_access": "KLING_ACCESS_KEY",
     "kling_secret": "KLING_SECRET_KEY",
     "fal": "FAL_KEY",
@@ -119,6 +121,26 @@ def get_anthropic_client() -> "Anthropic":
 
     api_key = get_api_key("anthropic")
     return Anthropic(api_key=api_key)
+
+
+@lru_cache(maxsize=1)
+def get_gemini_client() -> "GenaiClient":
+    """Get a Google Gemini client instance.
+
+    Returns:
+        Configured google-genai Client
+
+    Raises:
+        ImportError: If google-genai package is not installed
+        EnvironmentError: If GEMINI_API_KEY is not set
+    """
+    try:
+        from google import genai
+    except ImportError as e:
+        raise ImportError("google-genai package not installed. Run: uv add google-genai") from e
+
+    api_key = get_api_key("gemini")
+    return genai.Client(api_key=api_key)
 
 
 def check_api_keys() -> dict[str, bool]:

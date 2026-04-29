@@ -1,0 +1,18 @@
+You are looking at a single product reference photo for a piece of jewelry (an earring). Write a single-sentence caption that downstream image-generation prompts will use as the photo's identifier.
+
+The caption MUST describe two things:
+
+1. WHAT the photo shows. Pick the most accurate role from this set, in priority order:
+   - "ON A REAL MODEL'S EAR" — the earring is shown attached to a real human ear, NOT a bust/mannequin/jewelry display.
+   - "FRONT VIEW" — a flat, head-on macro of the earring, typically against a plain background.
+   - "SIDE VIEW" — a profile angle showing the depth/thickness of the earring and how the post extends.
+   - "BACK VIEW" — shows the post, butterfly clutch, hook, or other attachment hardware.
+   - "ALTERNATE ANGLE" — the earring against a plain background but from an oblique angle that doesn't fit the above.
+
+2. WHY it is useful as a reference. Briefly mention the most useful piece of information the photo provides for compositing the earring onto a different person — e.g. "use as the absolute size ground truth", "shows the metal tone clearly", "shows how the earring attaches", "shows the stone arrangement".
+
+Constraints:
+- Output exactly ONE sentence, max 30 words.
+- Start with the role label in ALL CAPS, then an em dash, then the description. Example: "ON A REAL MODEL'S EAR — three-quarter angle on a left earlobe, use as the absolute size ground truth."
+- Do NOT invent details you cannot see. Do NOT describe artistic qualities ("beautiful", "elegant").
+- Do NOT include any preamble, label, or trailing notes. Output ONLY the caption sentence.

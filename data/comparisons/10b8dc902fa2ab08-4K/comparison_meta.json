@@ -1,0 +1,32 @@
+{
+  "run_id": "10b8dc902fa2ab08",
+  "composite_source": {
+    "name": "starting_frame_v0",
+    "content_id": "51ba95fdef6615b2798445b15e5ac416b33cd2b2a6fee52b161340e9888912c9"
+  },
+  "critique_source": {
+    "name": "critique_v1",
+    "content_id": "e0657978f832dd632dfda14fdefc06e452fe61fd7c2f40a09218cb09e50db68b"
+  },
+  "critique": {
+    "acceptable": false,
+    "issues": [
+      "The earring in the composite is significantly too large compared to the on-model reference photo.",
+      "The earring should be a small stud, but in the composite it takes up a large portion of the earlobe."
+    ],
+    "correction_prompt": "The star stud earring in the current composite is significantly too large. Refer specifically to the second input image (the on-model reference photo) as the absolute size and placement ground truth. Edit the current composite so the earring matches the size seen in that reference, scaled correctly to the model's earlobe. The earring should be a small, delicate stud (roughly 1/4 to 1/3 the height of the earlobe). Ensure the design matches the star shape and clear stone arrangement seen in the FRONT VIEW reference exactly. Leave the model's face, hair, skin, expression, background, and lighting completely unchanged."
+  },
+  "edit_models": [
+    "fal-ai/nano-banana-2/edit",
+    "fal-ai/gpt-image-1.5/edit",
+    "fal-ai/flux-pro/kontext/multi",
+    "fal-ai/bytedance/seedream/v4.5/edit"
+  ],
+  "image_input_order": [
+    "51ba95fdef6615b2798445b15e5ac416b33cd2b2a6fee52b161340e9888912c9",
+    "9710fb140edb91f5d933075c557c3fef9ce8b6db459285baed4f394d81079a02",
+    "cfb4edad49c7dcec42ee82b834ebcccb980d35cc8d5236f0ceecd81eb9ed6764",
+    "d348d81f9069c394f26029da8575bb2c7c91884a3199d45ca950f1bd740c8b2e",
+    "47115a1d38db8e9dd4866dd9ddbc484dafb5d1b006edd472272d02d6e1a28a30"
+  ]
+}

@@ -1,75 +1,134 @@
-"""Tests for the analyze_reference step."""
+"""Tests for the analyze_reference step (Gemini-based)."""
 
-import base64
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pytest
-
-from video_generation.steps.analyze_reference import (
-    analyze_reference,
-    extract_frames,
-    frame_to_base64,
+from video_generation.steps.analyze_reference import OUTPUT_NAME, STEP_NAME, analyze_reference
+from video_generation.store import (
+    CodeVersion,
+    ContentStore,
+    RunInputs,
+    RunParams,
+    RunStore,
+    StepContext,
 )
 
 
-class TestExtractFrames:
-    def test_extracts_correct_count(self, tiny_video: Path) -> None:
-        frames = extract_frames(tiny_video, num_frames=2)
-        assert len(frames) == 2
-        assert all(isinstance(f, np.ndarray) for f in frames)
-
-    def test_extracts_all_frames(self, tiny_video: Path) -> None:
-        frames = extract_frames(tiny_video, num_frames=3)
-        assert len(frames) == 3
-
-    def test_invalid_video_raises(self, tmp_path: Path) -> None:
-        bad = tmp_path / "bad.mp4"
-        bad.write_text("not a video")
-        with pytest.raises(ValueError, match="Could not open video"):
-            extract_frames(bad, num_frames=1)
-
-
-class TestFrameToBase64:
-    def test_returns_valid_base64(self) -> None:
-        frame = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = frame_to_base64(frame)
-        decoded = base64.standard_b64decode(result)
-        assert len(decoded) > 0
-
-    def test_respects_max_size(self) -> None:
-        frame = np.zeros((2000, 3000, 3), dtype=np.uint8)
-        result = frame_to_base64(frame, max_size=512)
-        decoded = base64.standard_b64decode(result)
-        assert len(decoded) > 0
+def _make_ctx(
+    run_store: RunStore,
+    content_store: ContentStore,
+    video_id: str,
+    params: RunParams,
+    code_version: CodeVersion,
+) -> StepContext:
+    inputs = RunInputs(reference_video=video_id)
+    run = run_store.create_or_load(inputs=inputs, params=params, code_version=code_version)
+    return StepContext(
+        content_store, run_store, run.run_id, STEP_NAME, inputs={"reference_video": video_id}
+    )
 
 
 class TestAnalyzeReference:
-    @patch("video_generation.steps.analyze_reference.get_anthropic_client")
+    @patch("video_generation.steps.analyze_reference.get_gemini_client")
     def test_saves_analysis_and_returns_result(
-        self, mock_get_client: MagicMock, tiny_video: Path, tmp_output_dir: Path
+        self,
+        mock_get_client: MagicMock,
+        tiny_video: Path,
+        content_store: ContentStore,
+        run_store: RunStore,
+        default_params: RunParams,
+        code_version: CodeVersion,
     ) -> None:
+        video_ref = content_store.register_path(tiny_video, kind="video")
+        ctx = _make_ctx(
+            run_store, content_store, video_ref.content_id, default_params, code_version
+        )
+
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
+        mock_file = SimpleNamespace(name="files/abc123", state="ACTIVE")
+        mock_client.files.upload.return_value = mock_file
+
         mock_response = MagicMock()
-        mock_response.content = [SimpleNamespace(text="## Shot Breakdown\nGreat video.")]
-        mock_response.usage = SimpleNamespace(input_tokens=100, output_tokens=50)
-        mock_client.messages.create.return_value = mock_response
+        mock_response.text = "## Shot Breakdown\nGreat video."
+        mock_client.models.generate_content.return_value = mock_response
 
         result = analyze_reference(
-            tiny_video,
-            claude_model="test-model",
+            video_ref.content_id,
+            ctx=ctx,
+            gemini_model="gemini-test-model",
             num_frames=2,
-            output_dir=tmp_output_dir,
         )
 
-        assert result.output_path.exists()
         assert result.analysis_text == "## Shot Breakdown\nGreat video."
+        assert result.content_id is not None
+        assert result.output_path.exists()
         assert result.output_path.suffix == ".md"
 
-        mock_client.messages.create.assert_called_once()
-        call_kwargs = mock_client.messages.create.call_args
-        assert call_kwargs.kwargs["model"] == "test-model"
+        # The analysis was registered as content and attached to the step.
+        run = run_store.get(ctx.run_id)
+        assert run.steps[STEP_NAME].outputs[OUTPUT_NAME] == result.content_id
+
+        mock_client.files.upload.assert_called_once()
+        mock_client.models.generate_content.assert_called_once()
+        assert mock_client.models.generate_content.call_args.kwargs["model"] == "gemini-test-model"
+
+    @patch("video_generation.steps.analyze_reference.get_gemini_client")
+    def test_polls_until_active(
+        self,
+        mock_get_client: MagicMock,
+        tiny_video: Path,
+        content_store: ContentStore,
+        run_store: RunStore,
+        default_params: RunParams,
+        code_version: CodeVersion,
+    ) -> None:
+        video_ref = content_store.register_path(tiny_video, kind="video")
+        ctx = _make_ctx(
+            run_store, content_store, video_ref.content_id, default_params, code_version
+        )
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_file_processing = SimpleNamespace(name="files/abc123", state="PROCESSING")
+        mock_file_active = SimpleNamespace(name="files/abc123", state="ACTIVE")
+        mock_client.files.upload.return_value = mock_file_processing
+        mock_client.files.get.return_value = mock_file_active
+
+        mock_response = MagicMock()
+        mock_response.text = "Analysis text"
+        mock_client.models.generate_content.return_value = mock_response
+
+        with patch("video_generation.steps.analyze_reference.time") as mock_time:
+            result = analyze_reference(video_ref.content_id, ctx=ctx)
+
+        assert result.analysis_text == "Analysis text"
+        mock_client.files.get.assert_called_once_with(name="files/abc123")
+        mock_time.sleep.assert_called()
+
+    @patch("video_generation.steps.analyze_reference.get_gemini_client")
+    def test_cleans_up_uploaded_file(
+        self,
+        mock_get_client: MagicMock,
+        tiny_video: Path,
+        content_store: ContentStore,
+        run_store: RunStore,
+        default_params: RunParams,
+        code_version: CodeVersion,
+    ) -> None:
+        video_ref = content_store.register_path(tiny_video, kind="video")
+        ctx = _make_ctx(
+            run_store, content_store, video_ref.content_id, default_params, code_version
+        )
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.files.upload.return_value = SimpleNamespace(name="files/abc123", state="ACTIVE")
+        mock_client.models.generate_content.return_value = MagicMock(text="Analysis")
+
+        analyze_reference(video_ref.content_id, ctx=ctx)
+
+        mock_client.files.delete.assert_called_once_with(name="files/abc123")

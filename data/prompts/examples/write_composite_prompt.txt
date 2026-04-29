@@ -1,36 +1,43 @@
-You are looking at a set of images. Figure 1 is a base scene of a model WITHOUT any jewelry. The remaining figures are product photos of a piece of jewelry from different angles — some may show the product on a real model's ear.
+You are looking at a captioned set of images. Each image is preceded by a short caption that tells you exactly what the image is (e.g. "Photo 1 (BASE SCENE — TIGHT 1:1 CLOSE-UP OF THE EAR)", "Photo N (ON A REAL MODEL'S EAR — USE FOR SIZE GROUND TRUTH)"). Trust the captions — do NOT guess image roles from order alone.
 
-Your job is to write a prompt for an AI image editing model that will place this exact product onto the model in Figure 1.
+IMPORTANT: The BASE SCENE in this pipeline is an EXTREME 1:1 (square) close-up of just the model's ear, earlobe, and surrounding skin — not a full portrait. Because the canvas is so tight, the earring should occupy a much LARGER share of the frame than it would in a full portrait. Anchor your absolute size (in millimeters relative to the lobe) to the on-model reference photo, but understand that visually, in this close-up, the earring will be one of the dominant elements of the frame — that is correct, not an error.
 
-Study the product photos carefully. Pay close attention to:
-- The ACTUAL SIZE of the product relative to the model's ear in any "on model" photos — this is your ground truth
-- The exact design, color, material, and details
-- How it sits on the ear (stud flush to lobe, dangling, clip-on, etc.)
+Your job is to write a prompt for an AI image editing model that will composite the exact product (the earring) onto the model in the BASE SCENE. The result must look photographically faithful to the product's real-world appearance and size.
 
-Then write a prompt in TWO parts:
+Before you write the prompt, do this analysis silently:
 
-## Part 1: Composite instruction (single paragraph)
+1. Locate the photo captioned "ON A REAL MODEL'S EAR" — this is your **size ground truth**. Estimate the earring's size both as a fraction of the earlobe ("about 1/4 of the earlobe width") AND as an absolute physical estimate in millimeters (most studs are 4–7 mm across).
+2. Cross-reference the front, side, and backing photos to fully describe the product: shape, exact number/arrangement of stones, metal color (yellow / white / rose gold / silver), setting style (pavé, prong, bezel), and how it attaches (post stud, clip-on, hook).
+3. Look at the BASE SCENE photo to determine which ear is visible, how the head is angled, and where on the lobe a real piercing would naturally sit.
 
-Tell the image editor exactly how to composite the product. Include:
+Then write a prompt in TWO parts.
 
-1. A precise description of the product (shape, material, color, stones, setting style)
-2. Exactly where to place it (which ear, where on the lobe)
-3. How BIG it should be — compare to the model's earlobe. If you have an "on model" photo, match that size EXACTLY. Earring studs are typically VERY small, roughly 1/4 to 1/3 the width of the earlobe.
-4. The angle/orientation it should sit at given the model's head position
-5. A reminder to keep the product design identical to the reference photos
+## Part 1: Composite instruction (one dense paragraph, ~6–10 sentences)
+
+Tell the image editor exactly how to composite the product. Include, in this order:
+
+1. A precise description of the product (shape, material, color, stones, setting style, how many stones, gold/silver tone).
+2. Which ear to place it on, and exactly where on the lobe (e.g. "centered on the lower fleshy part of the earlobe at a natural piercing point").
+3. **An explicit numeric size estimate**, expressed two ways: as a fraction of the visible earlobe width (e.g. "1/4 to 1/3 of the earlobe width") AND as an approximate millimeter dimension (e.g. "approximately 4–6 mm across"). Anchor BOTH estimates to the on-model reference photo.
+4. The angle and orientation it should sit at, given the model's head pose in the BASE SCENE.
+5. A reminder that the design must remain identical to the reference photos (same shape, same stone count, same metal tone).
 
 ## Part 2: DO and DO NOT list
 
-End the prompt with a clear list of dos and don'ts that reinforces the most important constraints. Format exactly like this:
+End the prompt with a clear list. The DO NOT list is the most important — be exhaustive. Format exactly like this:
 
 DO:
-- (list specific things the editor should do)
+- (at least 6 specific things the editor should do; cover size, placement, metal tone, lighting, attachment, anatomical realism)
 
 DO NOT:
-- (list specific things the editor must avoid)
+- (at least 8 specific things the editor must avoid)
 
-The DO NOT list is especially important — include things like making the earring too large, changing the design, altering the background, etc.
+The DO NOT list MUST include, near the top:
+- "DO NOT change the earring's real-world proportion to the earlobe — match the on-model reference photo's earring-to-lobe ratio exactly. Do not invent a larger or smaller earring."
+And cover at minimum: wrong size relative to the lobe, design changes, wrong metal tone, floating/detached look, altering the model's face/hair/skin/expression, altering the background or lighting, adding earrings to the other ear (if visible), adding any additional jewelry.
 
-CRITICAL SIZING RULE: If any reference photo shows the product on a real model's ear, that is the absolute ground truth for size. The earring in the composite MUST match that real-world proportion. Err on the side of TOO SMALL rather than too big — oversized jewelry always looks fake.
+## CRITICAL SIZING RULE
 
-Write ONLY the composite prompt (both parts), nothing else.
+The on-model reference photo is the **absolute ground truth** for the earring's size *relative to the earlobe*. The earring in the composite MUST match that real-world proportion — same fraction of the lobe, same approximate millimeter dimension. Because the BASE SCENE is a square close-up of just the ear, the earring will visually fill a meaningful portion of the canvas — that is expected and correct. The error to avoid is changing the earring's proportion *to the lobe*, NOT making it visually small in the frame.
+
+Write ONLY the composite prompt (both Part 1 and Part 2). Do not include any preamble, analysis, or commentary.
